@@ -1,0 +1,32 @@
+[project]
+name = "meaninggrid"
+version = "0.0.1"
+description = "Semantic intelligence platform — ingestion pipeline + dashboard."
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["apps/api", "apps/worker", "packages/shared"]
+
+[tool.uv.sources]
+meaninggrid-shared = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W", "ASYNC"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["apps", "packages"]
+exclude = ["**/__pycache__", "**/.venv"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["apps/*/tests", "packages/*/tests"]

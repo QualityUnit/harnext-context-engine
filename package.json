@@ -1,0 +1,12 @@
+{
+  "name": "meaninggrid",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "web": "pnpm --filter @meaninggrid/web dev",
+    "web:build": "pnpm --filter @meaninggrid/web build",
+    "web:typecheck": "pnpm --filter @meaninggrid/web typecheck",
+    "web:lint": "pnpm --filter @meaninggrid/web lint"
+  }
+}

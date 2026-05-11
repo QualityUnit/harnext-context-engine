@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+.venv.*/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# uv
+.uv/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data — keep the directory (via .gitkeep) but never commit DBs/blobs
+data/*
+!data/.gitkeep
+*.sqlite
+*.sqlite-journal
+*.db
