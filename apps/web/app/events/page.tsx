@@ -2,79 +2,139 @@
 
 import Link from "next/link";
 import useSWR from "swr";
+import { AlertCircle, FileText, Inbox, RefreshCw } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PageHeader, PageShell } from "@/components/page-shell";
 import { fetcher } from "@/lib/api";
 import type { EventSummary } from "@/lib/types";
 
 export default function EventsPage() {
-  const { data, error, isLoading } = useSWR<EventSummary[]>(
+  const { data, error, isLoading, mutate, isValidating } = useSWR<EventSummary[]>(
     "/api/v1/events?limit=100",
     fetcher,
     { refreshInterval: 5000 },
   );
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8 space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
-        <span className="text-xs opacity-50">auto-refresh 5s</span>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Events"
+        description="Every CloudEvent the ingest endpoint has accepted, freshest first."
+        actions={
+          <>
+            <Badge variant="secondary" className="font-normal">
+              auto-refresh 5s
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => mutate()}
+              disabled={isValidating}
+            >
+              <RefreshCw className={isValidating ? "animate-spin" : undefined} />
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
-      {isLoading && <p className="opacity-70 text-sm">loading…</p>}
       {error && (
-        <p className="text-sm text-red-600 dark:text-red-400">
-          error: {String(error.message ?? error)}
-        </p>
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>Failed to load events</AlertTitle>
+          <AlertDescription>{String(error.message ?? error)}</AlertDescription>
+        </Alert>
       )}
 
-      {data && data.length === 0 && (
-        <div className="rounded-lg border border-dashed border-black/15 dark:border-white/15 p-8 text-center">
-          <p className="opacity-70 text-sm">No events yet.</p>
-          <p className="opacity-50 text-xs mt-1">
-            Try <Link href="/ingest" className="underline">/ingest</Link> to add one.
-          </p>
-        </div>
-      )}
-
-      {data && data.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-black/10 dark:border-white/10">
-          <table className="w-full text-sm">
-            <thead className="bg-black/[0.03] dark:bg-white/[0.04] text-left">
-              <tr>
-                <th className="px-3 py-2 font-medium">Ingest time</th>
-                <th className="px-3 py-2 font-medium">Source</th>
-                <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Subject</th>
-                <th className="px-3 py-2 font-medium">Blob</th>
-                <th className="px-3 py-2 font-medium">Id</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((e) => (
-                <tr
-                  key={e.id}
-                  className="border-t border-black/10 dark:border-white/10 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
-                >
-                  <td className="px-3 py-2 whitespace-nowrap opacity-80">
-                    {new Date(e.ingest_time).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2"><code>{e.source}</code></td>
-                  <td className="px-3 py-2"><code>{e.type}</code></td>
-                  <td className="px-3 py-2"><code>{e.subject}</code></td>
-                  <td className="px-3 py-2">{e.has_blob ? "yes" : "—"}</td>
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/events/${encodeURIComponent(e.id)}`}
-                      className="font-mono text-xs underline opacity-80"
-                    >
-                      {e.id.length > 40 ? e.id.slice(0, 40) + "…" : e.id}
-                    </Link>
-                  </td>
-                </tr>
+      {!error && (
+      <Card>
+        <CardContent className="p-0">
+          {isLoading && (
+            <div className="p-6 space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-7 w-full" />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          )}
+
+          {!isLoading && data && data.length === 0 && (
+            <div className="px-6 py-16 text-center space-y-3">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Inbox className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">No events yet</p>
+                <p className="text-xs text-muted-foreground">
+                  Try <Link href="/ingest" className="underline">/ingest</Link> to add one.
+                </p>
+              </div>
+              <Button asChild size="sm">
+                <Link href="/ingest">Open Ingest</Link>
+              </Button>
+            </div>
+          )}
+
+          {!isLoading && data && data.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[160px]">Ingested</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Subject</TableHead>
+                  <TableHead className="w-[60px]">Blob</TableHead>
+                  <TableHead>Id</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((e) => (
+                  <TableRow key={e.id}>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                      {new Date(e.ingest_time).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-[10px]">
+                        {e.source}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{e.type}</TableCell>
+                    <TableCell className="max-w-[280px] truncate">{e.subject}</TableCell>
+                    <TableCell>
+                      {e.has_blob ? (
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/events/${encodeURIComponent(e.id)}`}
+                        className="font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      >
+                        {e.id.length > 36 ? e.id.slice(0, 36) + "…" : e.id}
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
       )}
-    </div>
+    </PageShell>
   );
 }

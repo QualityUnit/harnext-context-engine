@@ -62,4 +62,22 @@ export const api = {
       body: fd,
     });
   },
+
+  hfDatasets: () =>
+    request<import("./types").HfDataset[]>("/api/v1/ingest/huggingface/datasets"),
+
+  hfIngest: (dataset: string) =>
+    request<import("./types").HfIngestResponse>("/api/v1/ingest/huggingface", {
+      method: "POST",
+      body: JSON.stringify({ dataset }),
+    }),
+
+  hfJob: (jobId: string) =>
+    request<import("./types").HfJobStatus>(`/api/v1/ingest/huggingface/jobs/${jobId}`),
+
+  adminReset: (confirm: string) =>
+    request<import("./types").ResetSummary>("/api/v1/admin/reset", {
+      method: "POST",
+      body: JSON.stringify({ confirm }),
+    }),
 };

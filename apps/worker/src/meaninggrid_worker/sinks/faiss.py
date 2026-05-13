@@ -9,12 +9,15 @@ v0 choices:
 - IndexFlatIP, exact NN over L2-normalized vectors → cosine similarity. Fine
   up to ~100k docs/tenant on commodity hardware; swap for IVF/HNSW later
   without changing the contract.
-- One file per tenant. The worker runs a single consumer process, so we only
-  need an asyncio.Lock per tenant for safety.
+- One file per tenant. With multiple worker processes (Kafka partition-fanout),
+  cross-process safety is provided by an advisory `fcntl.flock` on a sidecar
+  `.lock` file held across the read-modify-write window. The per-process
+  asyncio.Lock is still useful to avoid intra-process re-entry.
 - Idempotent on event.id: presence of a VectorDocument row → skip.
 """
 
 import asyncio
+import fcntl
 import logging
 import os
 from pathlib import Path
@@ -103,20 +106,36 @@ def _append_and_persist(path: Path, arr: np.ndarray, dim: int) -> int:
     """Synchronous: load (or create) the index, append, atomic-write back.
 
     Runs via asyncio.to_thread so we don't block the event loop on disk I/O.
+
+    Cross-process safety: held under an exclusive `fcntl.flock` on a sidecar
+    `.lock` file so concurrent worker processes can't race read-modify-write
+    on the same tenant's index. Advisory locks are sufficient because every
+    writer goes through this function (and `flock` is honored only by callers
+    that also take it).
     """
-    if path.exists():
-        idx = faiss.read_index(str(path))
-        if idx.d != dim:
-            raise ValueError(
-                f"FAISS index at {path} has dim={idx.d}, incoming embedding has dim={dim}"
-            )
-    else:
-        idx = faiss.IndexFlatIP(dim)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    # Open in append mode so the file is created if missing and we don't
+    # truncate anything. We never write to lock_f — only use it as a flock
+    # target.
+    with open(lock_path, "a") as lock_f:
+        fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+        try:
+            if path.exists():
+                idx = faiss.read_index(str(path))
+                if idx.d != dim:
+                    raise ValueError(
+                        f"FAISS index at {path} has dim={idx.d}, incoming embedding has dim={dim}"
+                    )
+            else:
+                idx = faiss.IndexFlatIP(dim)
 
-    new_id = int(idx.ntotal)
-    idx.add(arr)
+            new_id = int(idx.ntotal)
+            idx.add(arr)
 
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    faiss.write_index(idx, str(tmp))
-    os.replace(tmp, path)
-    return new_id
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            faiss.write_index(idx, str(tmp))
+            os.replace(tmp, path)
+            return new_id
+        finally:
+            fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)

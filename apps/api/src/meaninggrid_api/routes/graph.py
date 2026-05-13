@@ -59,46 +59,77 @@ def _parse_dt(v: Any) -> datetime | None:
 @router.get("/graph", response_model=GraphResponse)
 async def get_graph(
     tenant_id: Annotated[str, Depends(get_tenant_id)],
-    last_n: int = Query(10, ge=1, le=200, description="Use the last N episodes' subgraph"),
+    last_n: int | None = Query(
+        None,
+        ge=1,
+        le=10_000,
+        description=(
+            "Optional cap on episodes. Omit to return every entity + edge for the "
+            "tenant — narrowing happens client-side via the filter panel."
+        ),
+    ),
 ) -> GraphResponse:
-    """v0: returns the subgraph induced by the last N episodes for this tenant."""
+    """Default: return the tenant's entire entity-fact subgraph (all entities and
+    all RELATES_TO edges Graphiti has extracted). Pass `?last_n=N` to narrow to
+    the subgraph induced by the most recent N episodes — useful for big graphs
+    where the UI can't handle thousands of nodes.
+    """
     driver = get_graphiti().driver.clone(database=tenant_id)
 
-    ep_records, _, _ = await driver.execute_query(
-        """
-        MATCH (e:Episodic)
-        WHERE e.valid_at <= $ref_time
-        RETURN e.uuid AS uuid
-        ORDER BY e.valid_at DESC
-        LIMIT $limit
-        """,
-        ref_time=datetime.now(UTC),
-        limit=last_n,
-    )
-    episode_uuids = [r["uuid"] for r in (ep_records or [])]
-    if not episode_uuids:
-        return GraphResponse(nodes=[], edges=[])
+    if last_n is None:
+        # No episode filter — return all entities + all RELATES_TO edges.
+        node_records, _, _ = await driver.execute_query(
+            """
+            MATCH (n:Entity)
+            RETURN
+                n.uuid AS id, n.name AS name, n.summary AS summary,
+                labels(n) AS labels, n.created_at AS created_at
+            """,
+        )
+        edge_records, _, _ = await driver.execute_query(
+            """
+            MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+            RETURN
+                r.uuid AS id, a.uuid AS source, b.uuid AS target, r.fact AS fact,
+                r.valid_at AS valid_at, r.invalid_at AS invalid_at, r.episodes AS episodes
+            """,
+        )
+    else:
+        ep_records, _, _ = await driver.execute_query(
+            """
+            MATCH (e:Episodic)
+            WHERE e.valid_at <= $ref_time
+            RETURN e.uuid AS uuid
+            ORDER BY e.valid_at DESC
+            LIMIT $limit
+            """,
+            ref_time=datetime.now(UTC),
+            limit=last_n,
+        )
+        episode_uuids = [r["uuid"] for r in (ep_records or [])]
+        if not episode_uuids:
+            return GraphResponse(nodes=[], edges=[])
 
-    node_records, _, _ = await driver.execute_query(
-        """
-        MATCH (ep:Episodic)-[:MENTIONS]->(n:Entity)
-        WHERE ep.uuid IN $uuids
-        RETURN DISTINCT
-            n.uuid AS id, n.name AS name, n.summary AS summary,
-            labels(n) AS labels, n.created_at AS created_at
-        """,
-        uuids=episode_uuids,
-    )
-    edge_records, _, _ = await driver.execute_query(
-        """
-        MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-        WHERE r.episodes IS NOT NULL AND any(eid IN r.episodes WHERE eid IN $uuids)
-        RETURN
-            r.uuid AS id, a.uuid AS source, b.uuid AS target, r.fact AS fact,
-            r.valid_at AS valid_at, r.invalid_at AS invalid_at, r.episodes AS episodes
-        """,
-        uuids=episode_uuids,
-    )
+        node_records, _, _ = await driver.execute_query(
+            """
+            MATCH (ep:Episodic)-[:MENTIONS]->(n:Entity)
+            WHERE ep.uuid IN $uuids
+            RETURN DISTINCT
+                n.uuid AS id, n.name AS name, n.summary AS summary,
+                labels(n) AS labels, n.created_at AS created_at
+            """,
+            uuids=episode_uuids,
+        )
+        edge_records, _, _ = await driver.execute_query(
+            """
+            MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+            WHERE r.episodes IS NOT NULL AND any(eid IN r.episodes WHERE eid IN $uuids)
+            RETURN
+                r.uuid AS id, a.uuid AS source, b.uuid AS target, r.fact AS fact,
+                r.valid_at AS valid_at, r.invalid_at AS invalid_at, r.episodes AS episodes
+            """,
+            uuids=episode_uuids,
+        )
 
     nodes = [
         GraphNode(

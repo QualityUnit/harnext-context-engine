@@ -16,6 +16,7 @@ dependencies = [
     "graphiti-core[falkordb]>=0.10",
     "faiss-cpu>=1.8",
     "numpy>=1.26",
+    "huggingface-hub>=0.26",
     "meaninggrid-shared",
 ]
 

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from meaninggrid_api.db import init_models
 from meaninggrid_api.graphiti_client import start_graphiti, stop_graphiti
 from meaninggrid_api.kafka import start_producer, stop_producer
-from meaninggrid_api.routes import documents, events, graph, ingest
+from meaninggrid_api.routes import admin, documents, events, graph, huggingface, ingest
 from meaninggrid_api.settings import settings
 from meaninggrid_api.storage import ensure_bucket
 
@@ -51,9 +51,11 @@ app.add_middleware(
 )
 
 app.include_router(ingest.router)
+app.include_router(huggingface.router)
 app.include_router(events.router)
 app.include_router(graph.router)
 app.include_router(documents.router)
+app.include_router(admin.router)
 
 
 @app.get("/healthz")

@@ -23,7 +23,11 @@ from meaninggrid_worker.embedder import start_embedder
 from meaninggrid_worker.graphiti_client import get_graphiti, start_graphiti, stop_graphiti
 from meaninggrid_worker.outcomes import record_outcome
 from meaninggrid_worker.pipeline import build_chain, run_sinks
-from meaninggrid_worker.processors import EmbedDocumentProcessor, ExtractTextProcessor
+from meaninggrid_worker.processors import (
+    EmbedDocumentProcessor,
+    ExtractTextProcessor,
+    LiftTextProcessor,
+)
 from meaninggrid_worker.settings import settings
 from meaninggrid_worker.sinks import FaissSink, GraphitiSink
 
@@ -98,7 +102,11 @@ async def run() -> None:
     graphiti = get_graphiti()
     start_embedder()
 
-    processors: list[Processor] = [ExtractTextProcessor(), EmbedDocumentProcessor()]
+    processors: list[Processor] = [
+        ExtractTextProcessor(),
+        LiftTextProcessor(),
+        EmbedDocumentProcessor(),
+    ]
     sinks: list[Sink] = [GraphitiSink(graphiti), FaissSink()]
     log.info("processors: %s", [p.name for p in processors])
     log.info("sinks: %s", [s.name for s in sinks])

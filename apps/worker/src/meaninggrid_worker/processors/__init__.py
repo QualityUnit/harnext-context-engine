@@ -7,5 +7,6 @@ the recipe to add a new processor.
 
 from meaninggrid_worker.processors.embed_document import EmbedDocumentProcessor
 from meaninggrid_worker.processors.extract_text import ExtractTextProcessor
+from meaninggrid_worker.processors.lift_text import LiftTextProcessor
 
-__all__ = ["EmbedDocumentProcessor", "ExtractTextProcessor"]
+__all__ = ["EmbedDocumentProcessor", "ExtractTextProcessor", "LiftTextProcessor"]

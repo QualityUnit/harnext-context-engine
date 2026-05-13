@@ -50,16 +50,21 @@ class DocumentMap(BaseModel):
 async def get_document_map(
     tenant_id: Annotated[str, Depends(get_tenant_id)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    limit: int = Query(500, ge=1, le=5000),
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=200_000,
+        description="Optional cap. Omit to return every document for the tenant — filters happen client-side in the UI.",
+    ),
 ) -> DocumentMap:
-    rows = (
-        await session.execute(
-            select(VectorDocument)
-            .where(VectorDocument.tenant_id == tenant_id)
-            .order_by(VectorDocument.ingest_time.desc())
-            .limit(limit)
-        )
-    ).scalars().all()
+    stmt = (
+        select(VectorDocument)
+        .where(VectorDocument.tenant_id == tenant_id)
+        .order_by(VectorDocument.ingest_time.desc())
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = (await session.execute(stmt)).scalars().all()
     if not rows:
         return DocumentMap(points=[], method="pca", variance_explained=[0.0, 0.0])
 

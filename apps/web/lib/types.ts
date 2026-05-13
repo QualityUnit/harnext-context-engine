@@ -77,3 +77,42 @@ export type DocumentMap = {
   method: string;
   variance_explained: [number, number];
 };
+
+export type HfDataset = {
+  key: string;
+  label: string;
+  dataset_id: string;
+  description: string;
+  total_rows: number;
+};
+
+export type HfIngestResponse = {
+  job_id: string;
+  dataset_id: string;
+  dataset_key: string;
+  target: number;
+};
+
+export type HfJobStatus = {
+  job_id: string;
+  dataset_id: string;
+  dataset_key: string;
+  state: "queued" | "downloading" | "importing" | "done" | "failed" | string;
+  target: number;
+  accepted: number;
+  skipped: number;
+  current_part: string | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
+export type ResetSummary = {
+  falkordb_graphs: string[];
+  sqlite_rows_before: Record<string, number>;
+  minio_objects: number;
+  faiss_files: number;
+  kafka_topics: string[];
+  tenants_reseeded: string[];
+  notes: string[];
+};
