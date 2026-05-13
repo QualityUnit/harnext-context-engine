@@ -3,6 +3,7 @@ from meaninggrid_shared.db import (
     IngestedEvent,
     SinkOutcome,
     Tenant,
+    VectorDocument,
     configure_sqlite_pragmas,
     utcnow,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "Sink",
     "SinkOutcome",
     "Tenant",
+    "VectorDocument",
     "configure_sqlite_pragmas",
     "dlq_topic_for",
     "retry_topic_for",

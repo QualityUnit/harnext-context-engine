@@ -8,23 +8,24 @@ import json
 import logging
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-
 from meaninggrid_shared import (
-    CloudEvent,
     GLOBAL_DLQ_TOPIC,
+    RAW_EVENTS_TOPIC,
+    CloudEvent,
     IngestionContext,
     Processor,
-    RAW_EVENTS_TOPIC,
     Sink,
     dlq_topic_for,
 )
+
 from meaninggrid_worker.dedup import already_processed
+from meaninggrid_worker.embedder import start_embedder
 from meaninggrid_worker.graphiti_client import get_graphiti, start_graphiti, stop_graphiti
 from meaninggrid_worker.outcomes import record_outcome
 from meaninggrid_worker.pipeline import build_chain, run_sinks
-from meaninggrid_worker.processors import ExtractTextProcessor
+from meaninggrid_worker.processors import EmbedDocumentProcessor, ExtractTextProcessor
 from meaninggrid_worker.settings import settings
-from meaninggrid_worker.sinks import GraphitiSink
+from meaninggrid_worker.sinks import FaissSink, GraphitiSink
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 log = logging.getLogger("meaninggrid.worker")
@@ -95,9 +96,10 @@ async def run() -> None:
 
     await start_graphiti()
     graphiti = get_graphiti()
+    start_embedder()
 
-    processors: list[Processor] = [ExtractTextProcessor()]
-    sinks: list[Sink] = [GraphitiSink(graphiti)]
+    processors: list[Processor] = [ExtractTextProcessor(), EmbedDocumentProcessor()]
+    sinks: list[Sink] = [GraphitiSink(graphiti), FaissSink()]
     log.info("processors: %s", [p.name for p in processors])
     log.info("sinks: %s", [s.name for s in sinks])
 

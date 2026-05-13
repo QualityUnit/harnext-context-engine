@@ -59,3 +59,21 @@ export type IngestResponse = {
   id: string;
   accepted_at: string;
 };
+
+export type DocumentPoint = {
+  event_id: string;
+  source: string;
+  type: string;
+  subject: string;
+  event_time: string;
+  ingest_time: string;
+  text_preview: string | null;
+  x: number;
+  y: number;
+};
+
+export type DocumentMap = {
+  points: DocumentPoint[];
+  method: string;
+  variance_explained: [number, number];
+};

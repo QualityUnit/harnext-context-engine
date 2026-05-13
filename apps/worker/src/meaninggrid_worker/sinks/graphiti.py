@@ -16,7 +16,6 @@ import logging
 
 from graphiti_core import Graphiti
 from graphiti_core.nodes import EpisodeType
-
 from meaninggrid_shared import IngestionContext
 
 log = logging.getLogger("meaninggrid.worker.sinks.graphiti")

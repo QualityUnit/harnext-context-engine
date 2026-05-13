@@ -5,8 +5,7 @@ for the Processor / Sink contracts.
 """
 
 import asyncio
-from collections.abc import Callable
-from typing import Awaitable
+from collections.abc import Awaitable, Callable
 
 from meaninggrid_shared import IngestionContext, Processor, Sink
 

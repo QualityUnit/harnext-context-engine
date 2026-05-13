@@ -21,5 +21,9 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./data/meaninggrid.sqlite"
 
+    # Per-tenant FAISS index files live here (one .index per tenant).
+    # See docs/architecture/ingestion-pipeline.md §9.9.
+    faiss_dir: str = "./data/faiss"
+
 
 settings = Settings()

@@ -12,9 +12,9 @@ See docs/architecture/ingestion-pipeline.md §9.3.
 import io
 import logging
 
+from meaninggrid_shared import IngestionContext
 from pypdf import PdfReader
 
-from meaninggrid_shared import IngestionContext
 from meaninggrid_worker.storage import fetch_blob
 
 log = logging.getLogger("meaninggrid.worker.processors.extract_text")

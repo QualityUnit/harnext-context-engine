@@ -7,11 +7,11 @@ import asyncio
 import logging
 import sys
 
+from meaninggrid_shared import Tenant
 from sqlalchemy import select
 
 from meaninggrid_api.db import SessionLocal, init_models
 from meaninggrid_api.storage import ensure_bucket
-from meaninggrid_shared import Tenant
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s — %(message)s")
 log = logging.getLogger("meaninggrid.bootstrap")

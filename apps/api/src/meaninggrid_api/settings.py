@@ -28,5 +28,9 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./data/meaninggrid.sqlite"
 
+    # Per-tenant FAISS index files live here (one .index per tenant). Must
+    # match the worker's faiss_dir — both processes read/write the same files.
+    faiss_dir: str = "./data/faiss"
+
 
 settings = Settings()

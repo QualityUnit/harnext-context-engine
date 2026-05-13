@@ -87,3 +87,29 @@ class SinkOutcome(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class VectorDocument(Base):
+    """Sidecar metadata for the per-tenant on-disk FAISS index.
+
+    Populated by FaissSink (apps/worker/sinks/faiss.py); read by
+    /api/v1/documents/vectors. Vectors themselves live in the binary FAISS
+    file at `{faiss_dir}/{tenant_id}.index`; `faiss_id` is the row index
+    inside that file. See docs/architecture/ingestion-pipeline.md §9.9.
+    """
+
+    __tablename__ = "vector_documents"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+
+    faiss_id: Mapped[int] = mapped_column(Integer)
+    dim: Mapped[int] = mapped_column(Integer)
+
+    source: Mapped[str] = mapped_column(String(128))
+    type: Mapped[str] = mapped_column(String(128))
+    subject: Mapped[str] = mapped_column(String(255))
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ingest_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    text_preview: Mapped[str | None] = mapped_column(Text, nullable=True)

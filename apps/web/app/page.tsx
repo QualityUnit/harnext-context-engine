@@ -12,6 +12,11 @@ const cards = [
     body: "The semantic graph Graphiti built. Cytoscape-rendered subgraph of recent activity.",
   },
   {
+    href: "/documents",
+    title: "Documents",
+    body: "2D map of every ingested document by embedding similarity (FAISS + PCA).",
+  },
+  {
     href: "/ingest",
     title: "Ingest",
     body: "Upload a document or post a JSON event to feed the pipeline.",

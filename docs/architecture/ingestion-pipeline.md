@@ -458,18 +458,24 @@ Replay strategy: **per-sink DLQ topics are themselves Kafka topics** that can be
 
 If implementing a new sink requires touching anything outside its own file + config, **the design is being violated**. Push back.
 
-### 9.9 Worked example — adding a vector sink (post-v0)
+### 9.9 Worked example — adding a vector sink
 
-Scenario: we want a single embedding for the whole document, stored in Qdrant alongside the Graphiti write.
+**Status:** implemented as the FAISS document-map sink (the design's success-metric test ran in the real codebase).
 
-**Changes:**
-1. New processor `embed_document` — `requires=["text"]`, `produces=["embedding"]`. Calls embedding API; stores `np.ndarray` in `artifacts["embedding"]`.
-2. New sink `qdrant` — `requires=["embedding"]`. `write()` upserts a point with `id=ctx.event.id`, `vector=ctx.artifacts["embedding"]`, payload `{source, type, subject, time}`.
-3. Config registration for both.
+Scenario: we want a single embedding for the whole document, stored in a vector index alongside the Graphiti write, and surfaced as a 2D scatter on the dashboard so the user can see every document the system has ingested.
 
-**What does NOT change:** Ingest API. Adapters. Kafka topology. CloudEvents envelope. GraphitiSink. Dedup. ExtractTextProcessor. Worker loop.
+**Changes that shipped:**
+1. New processor `embed_document` (`apps/worker/processors/embed_document.py`) — `requires=[]`, `produces=["embedding", "embedding_preview"]`. Reuses Graphiti's Ollama embedder; embeds `artifacts["text"]` when extracted, else the canonical JSON form of `event.data` so every event lands on the map. L2-normalizes for cosine-via-inner-product.
+2. New sink `faiss` (`apps/worker/sinks/faiss.py`) — `requires=["embedding"]`. Persists to a per-tenant `{faiss_dir}/{tenant}.index` (FAISS `IndexFlatIP`) with a SQLite sidecar `vector_documents(tenant_id, event_id → faiss_id, metadata, text_preview)`. Idempotent on `event.id` via the sidecar row; per-tenant `asyncio.Lock` for write safety.
+3. New read endpoint `GET /api/v1/documents/vectors` (`apps/api/routes/documents.py`) — reconstructs vectors from the FAISS file, projects to 2D via PCA (numpy SVD), returns one point per document.
+4. Frontend `/documents` (`apps/web/app/documents/`) — canvas scatter, hover tooltip, click-to-event-detail, source legend.
 
-This is the design's success metric.
+**What did NOT change:** Ingest API. Adapters. Kafka topology. CloudEvents envelope. GraphitiSink. Dedup. ExtractTextProcessor. Worker loop. Auth. That's the design's success metric — additive only.
+
+**Notes / known limits at v0:**
+- Per-tenant index file means the worker can't horizontally scale on a single tenant without a coordinator. Acceptable for v0; revisit when one tenant outgrows a single writer.
+- PCA is computed on-demand per request. Fine up to a few thousand docs; cache or precompute when this becomes a bottleneck.
+- Swap `IndexFlatIP` for `IndexIVFFlat` / `IndexHNSW` when document counts justify the index-build cost.
 
 ### 9.10 Future: when a sink should leave the worker
 

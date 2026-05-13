@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from meaninggrid_shared import CloudEvent, IngestedEvent
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,6 @@ from meaninggrid_api.auth import get_tenant_id
 from meaninggrid_api.db import get_session
 from meaninggrid_api.kafka import publish_event
 from meaninggrid_api.storage import upload_blob
-from meaninggrid_shared import CloudEvent, IngestedEvent
 
 router = APIRouter(prefix="/api/v1", tags=["ingest"])
 

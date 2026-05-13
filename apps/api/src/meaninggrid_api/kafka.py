@@ -4,9 +4,9 @@ import json
 from typing import Any
 
 from aiokafka import AIOKafkaProducer
+from meaninggrid_shared import RAW_EVENTS_TOPIC, CloudEvent
 
 from meaninggrid_api.settings import settings
-from meaninggrid_shared import CloudEvent, RAW_EVENTS_TOPIC
 
 _producer: AIOKafkaProducer | None = None
 

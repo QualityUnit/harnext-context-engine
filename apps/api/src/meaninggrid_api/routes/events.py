@@ -4,13 +4,13 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from meaninggrid_shared import IngestedEvent, SinkOutcome
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meaninggrid_api.auth import get_tenant_id
 from meaninggrid_api.db import get_session
-from meaninggrid_shared import IngestedEvent, SinkOutcome
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 

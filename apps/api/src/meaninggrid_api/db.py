@@ -6,6 +6,7 @@ Used by both the API (ingest writes, read endpoints) and the bootstrap script.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from meaninggrid_shared import Base, configure_sqlite_pragmas
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -13,7 +14,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from meaninggrid_api.settings import settings
-from meaninggrid_shared import Base, configure_sqlite_pragmas
 
 engine = create_async_engine(settings.database_url, echo=False, future=True)
 configure_sqlite_pragmas(engine)

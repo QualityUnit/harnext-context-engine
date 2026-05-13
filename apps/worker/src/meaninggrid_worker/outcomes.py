@@ -5,10 +5,10 @@ Drives /api/v1/events/{id} sink status display in the dashboard.
 
 from datetime import UTC, datetime
 
+from meaninggrid_shared import SinkOutcome
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from meaninggrid_worker.db import SessionLocal
-from meaninggrid_shared import SinkOutcome
 
 
 async def record_outcome(

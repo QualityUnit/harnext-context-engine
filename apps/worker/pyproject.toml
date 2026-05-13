@@ -12,6 +12,8 @@ dependencies = [
     "aioboto3>=13.0",
     "pypdf>=5.0",
     "graphiti-core[falkordb]>=0.10",
+    "faiss-cpu>=1.8",
+    "numpy>=1.26",
     "meaninggrid-shared",
 ]
 
