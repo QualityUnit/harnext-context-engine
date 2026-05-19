@@ -7,7 +7,7 @@ is a connection-string change.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, event
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, event
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -52,9 +52,20 @@ class IngestedEvent(Base):
 
     Created by the Ingest API on /ingest. The worker checks this table for
     dedup (presence = seen). Holds the full envelope for replay/debug.
+
+    Index on (tenant_id, ingest_time DESC) lets the dashboard's /events list
+    query short-circuit at LIMIT N instead of sorting the whole table — the
+    difference between ~7 ms and ~3.7 s at 93k rows.
     """
 
     __tablename__ = "ingested_events"
+    __table_args__ = (
+        Index(
+            "ix_ingested_events_tenant_time",
+            "tenant_id",
+            "ingest_time",
+        ),
+    )
 
     tenant_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("tenants.id"), primary_key=True

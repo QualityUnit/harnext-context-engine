@@ -48,3 +48,4 @@ data/*
 *.sqlite
 *.sqlite-journal
 *.db
+/exports/

@@ -34,6 +34,16 @@ from meaninggrid_worker.sinks import FaissSink, GraphitiSink
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 log = logging.getLogger("meaninggrid.worker")
 
+# Demo-only skip filter. Events with these source prefixes get their Kafka
+# offset committed but skip processors/sinks — used during showcases when one
+# category dominates the import queue and we want to diversify the on-screen
+# data faster. Remove this block after the demo.
+DEMO_SKIP_SOURCE_PREFIXES: tuple[str, ...] = (
+    "huggingface:medicare:",
+    "huggingface:auto_insurance:",
+    "huggingface:insurance:outbound",
+)
+
 
 async def _publish_dlq(producer: AIOKafkaProducer, topic: str, event: CloudEvent, error: str, stage: str) -> None:
     payload = {
@@ -119,8 +129,11 @@ async def run() -> None:
         enable_auto_commit=False,
         auto_offset_reset="earliest",
         # LLM extraction can take minutes per event with local models — give the
-        # consumer plenty of time before the broker thinks it died.
-        max_poll_interval_ms=15 * 60 * 1000,   # 15 min between poll() calls
+        # consumer plenty of time before the broker thinks it died. Bumped to 60
+        # min because we've observed occasional Ollama hangs of 15–20 min on
+        # specific transcripts; the previous 15-min ceiling caused commit-time
+        # crashes after the broker rebalanced under the worker.
+        max_poll_interval_ms=60 * 60 * 1000,   # 60 min between poll() calls
         session_timeout_ms=60 * 1000,
         heartbeat_interval_ms=10 * 1000,
     )
@@ -138,6 +151,11 @@ async def run() -> None:
                 event = CloudEvent.model_validate(msg.value)
             except Exception as e:
                 log.error("invalid envelope, skipping (offset=%d): %s", msg.offset, e)
+                await consumer.commit()
+                continue
+
+            if any(event.source.startswith(p) for p in DEMO_SKIP_SOURCE_PREFIXES):
+                log.debug("demo skip: source=%s id=%s", event.source, event.id)
                 await consumer.commit()
                 continue
 
