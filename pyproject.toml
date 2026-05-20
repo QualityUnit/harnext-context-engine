@@ -5,7 +5,7 @@ description = "Semantic intelligence platform — ingestion pipeline + dashboard
 requires-python = ">=3.12"
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/worker", "packages/shared"]
+members = ["apps/api", "apps/mcp", "apps/worker", "packages/shared"]
 
 [tool.uv.sources]
 meaninggrid-shared = { workspace = true }
