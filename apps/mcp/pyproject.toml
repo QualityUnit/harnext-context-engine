@@ -5,6 +5,7 @@ description = "The only external surface: MCP context tools (research / get_urls
 requires-python = ">=3.12"
 dependencies = [
     "meaninggrid-shared",
+    "meaninggrid-builder",
     "fastmcp>=2.0",
     "claude-agent-sdk>=0.1.0",
     "pydantic>=2.9",

@@ -51,6 +51,16 @@ class BuildRunner:
         self.s = settings
 
     async def run(self, wi: WorkItem) -> BuildOutcome:
+        """Incorporate a fast event / batch window into the org FS."""
+        return await self._build(wi, render_instruction(wi))
+
+    async def run_update(self, org_id: str, instruction: str, dedupe_key: str) -> BuildOutcome:
+        """Apply a caller's free-form instruction to the store (MCP context_update).
+        The caller passes a unique dedupe_key so each update runs."""
+        wi = WorkItem(org_id=org_id, lane="update", dedupe_key=dedupe_key, subjects=[], events=[])
+        return await self._build(wi, instruction)
+
+    async def _build(self, wi: WorkItem, instruction: str) -> BuildOutcome:
         # 1. idempotency gate
         existing = await self.p.get_ledger(wi.org_id, wi.dedupe_key)
         if existing is not None and existing.status == "success":
@@ -67,8 +77,7 @@ class BuildRunner:
         await self.store.ensure(wi.org_id)
         pre = await self.store.latest_snapshot(wi.org_id)  # genesis at minimum
 
-        # 3. render + run the harness against the mounted FS
-        instruction = render_instruction(wi)
+        # 3. run the harness against the mounted FS
         req = HarnessRequest(
             harness=self.s.harness,
             working_dir=".",  # the runner overrides this with the mount's cwd
