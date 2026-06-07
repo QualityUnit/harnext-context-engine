@@ -58,14 +58,14 @@ web:
 	pnpm --filter @meaninggrid/web dev --port 3100
 
 fmt:
-	uvx ruff format .
-	uvx ruff check --fix .
+	uv run ruff format .
+	uv run ruff check --fix .
 
 lint:
-	uvx ruff check .
+	uv run ruff check .
 
 typecheck:
-	uvx pyright
+	uv run pyright
 
 test:
 	uv run pytest

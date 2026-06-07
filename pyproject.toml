@@ -7,8 +7,28 @@ requires-python = ">=3.12"
 [tool.uv.workspace]
 members = ["apps/ingest", "apps/classifier", "apps/builder", "apps/mcp", "packages/shared"]
 
+# The root env is the "everything" env used for tests + tooling: it pulls in
+# every workspace member plus the dev tools, so `uv run pytest/pyright` resolve
+# all the meaninggrid_* packages.
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "pyright>=1.1",
+    "meaninggrid-shared",
+    "meaninggrid-ingest",
+    "meaninggrid-classifier",
+    "meaninggrid-builder",
+    "meaninggrid-mcp",
+]
+
 [tool.uv.sources]
 meaninggrid-shared = { workspace = true }
+meaninggrid-ingest = { workspace = true }
+meaninggrid-classifier = { workspace = true }
+meaninggrid-builder = { workspace = true }
+meaninggrid-mcp = { workspace = true }
 
 [tool.ruff]
 line-length = 100
