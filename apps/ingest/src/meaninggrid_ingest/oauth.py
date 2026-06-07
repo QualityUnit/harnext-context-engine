@@ -88,6 +88,51 @@ async def google_exchange(client_id: str, client_secret: str, code: str, redirec
     }
 
 
+def github_login_authorize_url(client_id: str, redirect: str, state: str) -> str:
+    q = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect,
+            "scope": "read:user user:email",
+            "state": state,
+        }
+    )
+    return f"https://github.com/login/oauth/authorize?{q}"
+
+
+async def github_login_exchange(
+    client_id: str, client_secret: str, code: str, redirect: str
+) -> dict:
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": redirect,
+            },
+            headers={"Accept": "application/json"},
+        )
+        r.raise_for_status()
+        token = r.json().get("access_token")
+        if not token:
+            raise OAuthError("github token exchange returned no access_token")
+        hdr = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        user = (await c.get("https://api.github.com/user", headers=hdr)).json()
+        email = user.get("email")
+        if not email:  # primary email may be private — fetch it explicitly
+            emails = (await c.get("https://api.github.com/user/emails", headers=hdr)).json()
+            if isinstance(emails, list):
+                primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
+                email = (primary or (emails[0] if emails else {})).get("email")
+    return {
+        "email": email,
+        "name": user.get("name") or user.get("login"),
+        "avatar": user.get("avatar_url"),
+    }
+
+
 def github_authorize_url(client_id: str, redirect: str, state: str) -> str:
     q = urlencode(
         {"client_id": client_id, "redirect_uri": redirect, "scope": "repo read:org", "state": state}

@@ -109,6 +109,29 @@ class SourceService:
             await s.refresh(user)
             return user
 
+    async def upsert_github_user(self, email: str, name: str | None, avatar: str | None) -> User:
+        """GitHub sign-in: link an existing email account, else create. Matched
+        by email (no github_sub column needed)."""
+        async with self.sm() as s:
+            user = (await s.execute(select(User).where(User.email == email))).scalar_one_or_none()
+            if user is None:
+                user = User(
+                    id=uuid.uuid4().hex,
+                    username=email,
+                    email=email,
+                    name=name or email.split("@")[0],
+                    avatar_url=avatar,
+                )
+                s.add(user)
+            else:
+                if avatar and not user.avatar_url:
+                    user.avatar_url = avatar
+                if name and not user.name:
+                    user.name = name
+            await s.commit()
+            await s.refresh(user)
+            return user
+
     # -- projects ----------------------------------------------------------
     async def create_project(self, owner_id: str, name: str) -> Project:
         proj = Project(id=uuid.uuid4().hex, name=name, owner_id=owner_id)

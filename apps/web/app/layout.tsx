@@ -1,19 +1,22 @@
 import type { Metadata } from "next";
+import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { NavBar } from "@/components/NavBar";
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: "MeaningGrid",
-  description: "Connect your tools; the context engine turns their events into living context.",
+  description: "Context engine for agents. One context grid. Every harness.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
-        <NavBar />
-        <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
-      </body>
+    <html lang="en" className={mono.variable}>
+      <body>{children}</body>
     </html>
   );
 }

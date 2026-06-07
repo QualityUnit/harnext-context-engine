@@ -107,6 +107,7 @@ async def fetch(client: httpx.AsyncClient, url: str) -> str:
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("project_id", help="target project id (the mgtenant)")
+    ap.add_argument("--start", type=int, default=0, help="skip the first N pages (for incremental runs)")
     ap.add_argument("--limit", type=int, default=30)
     ap.add_argument("--max-chars", type=int, default=4000)
     ap.add_argument("--bootstrap", default="localhost:9092")
@@ -118,8 +119,11 @@ async def main() -> None:
         timeout=30, headers=headers, follow_redirects=True
     ) as client:
         all_links = feature_links(await fetch(client, INDEX))
-        links = all_links[: args.limit]
-        print(f"discovered {len(all_links)} feature page(s); processing {len(links)} (limit {args.limit})\n")
+        links = all_links[args.start : args.start + args.limit]
+        print(
+            f"discovered {len(all_links)} feature page(s); "
+            f"processing {len(links)} (start {args.start}, limit {args.limit})\n"
+        )
 
         producer: AIOKafkaProducer | None = None
         if not args.dry_run:

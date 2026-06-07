@@ -1,74 +1,10 @@
-"use client";
-
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { api } from "@/lib/api";
-import { setSession } from "@/lib/auth";
-import { Button, Card, Field, inputCls } from "@/components/ui";
-import { GoogleButton } from "@/components/GoogleButton";
+import { Suspense } from "react";
+import { AuthForm } from "@/components/AuthForm";
 
 export default function LoginPage() {
   return (
     <Suspense>
-      <LoginForm />
+      <AuthForm mode="login" />
     </Suspense>
-  );
-}
-
-function LoginForm() {
-  const router = useRouter();
-  const search = useSearchParams();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const qError = search.get("error");
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const { token, user } = await api.login(email.trim(), password);
-      setSession(token, user);
-      router.replace("/projects");
-    } catch {
-      setError("Invalid email or password.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mx-auto mt-16 max-w-md">
-      <Card title="Sign in">
-        <div className="flex flex-col gap-4">
-          <GoogleButton />
-          <div className="flex items-center gap-3 text-xs text-neutral-600">
-            <span className="h-px flex-1 bg-neutral-800" /> or <span className="h-px flex-1 bg-neutral-800" />
-          </div>
-          <form onSubmit={submit} className="flex flex-col gap-3">
-            <Field label="Email">
-              <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoFocus />
-            </Field>
-            <Field label="Password">
-              <input className={inputCls} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" />
-            </Field>
-            {error && <p className="text-sm text-red-400">{error}</p>}
-            {qError === "google_not_configured" && (
-              <p className="text-sm text-amber-400">Google sign-in isn’t configured yet — use email/password, or set the Google OAuth client in .env.</p>
-            )}
-            <Button type="submit" disabled={busy}>
-              {busy ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
-          <p className="text-sm text-neutral-400">
-            No account? <Link href="/register" className="text-neutral-200 underline">Create one</Link>
-          </p>
-        </div>
-      </Card>
-    </div>
   );
 }

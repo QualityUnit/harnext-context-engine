@@ -224,6 +224,39 @@ async def google_callback(
     return RedirectResponse(f"{cfg.web_origin}/auth/callback?token={_token(cfg, user)}")
 
 
+@app.get("/auth/github/start")
+async def github_login_start(cfg: CfgDep) -> RedirectResponse:
+    if not cfg.github_oauth_client_id:
+        return RedirectResponse(f"{cfg.web_origin}/login?error=github_not_configured")
+    state = oauth.new_state("", "github_login")
+    redirect = f"{cfg.oauth_redirect_base}/auth/github/callback"
+    return RedirectResponse(
+        oauth.github_login_authorize_url(cfg.github_oauth_client_id, redirect, state)
+    )
+
+
+@app.get("/auth/github/callback")
+async def github_login_callback(
+    svc: SvcDep, cfg: CfgDep, code: Annotated[str, Query()], state: Annotated[str, Query()]
+) -> RedirectResponse:
+    parsed = oauth.consume_state(state)
+    if parsed is None or parsed[1] != "github_login":
+        raise HTTPException(400, "invalid or expired OAuth state")
+    if not cfg.github_oauth_client_id or not cfg.github_oauth_client_secret:
+        raise HTTPException(400, "github oauth not configured")
+    redirect = f"{cfg.oauth_redirect_base}/auth/github/callback"
+    try:
+        info = await oauth.github_login_exchange(
+            cfg.github_oauth_client_id, cfg.github_oauth_client_secret, code, redirect
+        )
+        if not info.get("email"):
+            return RedirectResponse(f"{cfg.web_origin}/login?error=github_no_email")
+        user = await svc.upsert_github_user(info["email"], info["name"], info["avatar"])
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"{cfg.web_origin}/login?error={type(e).__name__}")
+    return RedirectResponse(f"{cfg.web_origin}/auth/callback?token={_token(cfg, user)}")
+
+
 # -- projects --------------------------------------------------------------
 @app.post("/projects", response_model=ProjectOut)
 async def create_project(body: ProjectCreate, svc: SvcDep, user: UserDep) -> ProjectOut:
