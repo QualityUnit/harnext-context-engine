@@ -15,8 +15,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={mono.variable}>
-      <body>{children}</body>
+    <html lang="en" className={mono.variable} suppressHydrationWarning>
+      {/* suppressHydrationWarning: browser extensions (ColorZilla, Grammarly,
+          Dark Reader, …) inject attributes on <html>/<body> before React
+          hydrates, which would otherwise log a spurious mismatch warning. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
