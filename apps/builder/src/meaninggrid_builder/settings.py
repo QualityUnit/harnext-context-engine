@@ -1,10 +1,11 @@
 """Builder configuration (env-driven)."""
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class BuilderSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     # Kafka
     kafka_bootstrap_servers: str = "localhost:9092"
@@ -18,7 +19,7 @@ class BuilderSettings(BaseSettings):
     agentfs_bin: str = "agentfs"
 
     # Harness
-    harness: str = "claude_code"  # claude_code | codex (env: MEANINGGRID_HARNESS)
+    harness: str = Field(default="claude_code", validation_alias="MEANINGGRID_HARNESS")
     anthropic_api_key: str | None = None
     builder_model: str = "claude-sonnet-4-6"
     builder_max_turns: int = 40
@@ -26,9 +27,3 @@ class BuilderSettings(BaseSettings):
 
     # Concurrency: different orgs build in parallel up to this; one org is serial.
     max_concurrent_builds: int = 4
-
-    @property
-    def resolved_harness(self) -> str:
-        import os
-
-        return os.getenv("MEANINGGRID_HARNESS", self.harness)
