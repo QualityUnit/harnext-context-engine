@@ -1,10 +1,9 @@
-# Local-dev infra for meaninggrid.
-# Brings up: Redpanda (Kafka API), FalkorDB (Redis-based graph), MinIO (S3-compatible blobs).
+# Local-dev infra for the CMS.
+# Brings up: Redpanda (Kafka API) + the Redpanda Console (topic inspection).
+# The per-org context lives in AgentFS on disk, so no graph/blob store is needed.
 #
 #   docker compose -f infra/docker-compose.yml up -d
 #
-# See docs/architecture/ingestion-pipeline.md §3 for what each one is for.
-
 services:
   redpanda:
     image: redpandadata/redpanda:latest
@@ -34,39 +33,5 @@ services:
       timeout: 5s
       retries: 10
 
-  falkordb:
-    image: falkordb/falkordb:latest
-    container_name: meaninggrid-falkordb
-    ports:
-      - "6380:6379"   # Redis / FalkorDB protocol (host 6380 to avoid local Redis on 6379)
-      - "3001:3000"   # FalkorDB Browser
-    volumes:
-      - falkordb_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  minio:
-    image: minio/minio:latest
-    container_name: meaninggrid-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: meaninggrid
-      MINIO_ROOT_PASSWORD: meaninggrid_dev
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 volumes:
   redpanda_data:
-  falkordb_data:
-  minio_data:

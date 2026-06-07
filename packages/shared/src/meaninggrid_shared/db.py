@@ -1,13 +1,23 @@
-"""SQLAlchemy 2.0 ORM models for the OLTP store.
+"""SQLAlchemy 2.0 ORM models for the CMS control-plane / metadata store.
 
-See docs/architecture/ingestion-pipeline.md §8a for the table list and rationale.
-v0 driver is SQLite via aiosqlite; schema is dialect-agnostic so Postgres swap
-is a connection-string change.
+One SQLite file (WAL) is shared by all apps as the OLTP/metadata store:
+    - source registry        (Org, Source)        — written by apps/ingest
+    - ingest record          (IngestedEvent)      — written by apps/ingest
+    - classifier baselines   (EntityBaseline)     — written by apps/classifier
+    - build idempotency      (BuildLedger)        — written by apps/builder
+    - raw-conversation log   (ConversationLog)    — written by apps/builder, read by apps/mcp
+    - FS snapshot index      (FsSnapshot)         — written by apps/builder, read by apps/mcp
+
+The per-org *context* itself does NOT live here — it lives in each org's
+AgentFS store (see apps/builder/agentfs). This DB only holds metadata and the
+URL-addressable conversation log.
+
+Schema is dialect-agnostic so a Postgres swap is a connection-string change.
 """
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, event
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, event
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -15,8 +25,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 def configure_sqlite_pragmas(engine: AsyncEngine) -> None:
     """Enable WAL + sane defaults for SQLite. No-op for any other dialect.
 
-    WAL is what makes concurrent readers + a single writer tolerable. Without
-    it, every reader blocks the writer and vice versa.
+    WAL is what makes concurrent readers + a single writer tolerable across the
+    several CMS processes that share this file.
     """
     if not str(engine.url).startswith("sqlite"):
         return
@@ -27,6 +37,7 @@ def configure_sqlite_pragmas(engine: AsyncEngine) -> None:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 
@@ -38,89 +49,172 @@ class Base(DeclarativeBase):
     pass
 
 
-class Tenant(Base):
-    __tablename__ = "tenants"
+# --------------------------------------------------------------------------
+# Source registry (control plane for the web UI + connectors)
+# --------------------------------------------------------------------------
+
+
+class Org(Base):
+    """A tenant. ``org.id`` == the CloudEvent ``mgtenant`` extension == the
+    boundary for one AgentFS store. No cross-org access, anywhere."""
+
+    __tablename__ = "orgs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(32), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Source(Base):
+    """A connected data source (a GitHub repo, a Slack channel, …).
+
+    ``config_json`` carries kind-specific config, e.g.
+        github: {"repo": "owner/name"}
+        slack:  {"channel_id": "C123", "channel_name": "general"}
+    ``secret`` holds the access token (plaintext in v1; an encrypted vault is
+    future work). ``cursor`` is the incremental-sync watermark.
+    """
+
+    __tablename__ = "sources"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    org_id: Mapped[str] = mapped_column(String(64), ForeignKey("orgs.id"))
+    kind: Mapped[str] = mapped_column(String(32))  # github | slack
+    config_json: Mapped[str] = mapped_column(Text)
+    secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(32), default="active")  # active|paused|error
+    cursor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class IngestedEvent(Base):
-    """Source-of-truth record that an event was accepted by the Ingest API.
+    """A slim record that an event was normalized + produced to the raw topic.
 
-    Created by the Ingest API on /ingest. The worker checks this table for
-    dedup (presence = seen). Holds the full envelope for replay/debug.
-
-    Index on (tenant_id, ingest_time DESC) lets the dashboard's /events list
-    query short-circuit at LIMIT N instead of sorting the whole table — the
-    difference between ~7 ms and ~3.7 s at 93k rows.
+    Lets the UI list recent activity and join to BuildLedger for build status.
+    The full payload lives in Kafka / the event itself, not here.
     """
 
     __tablename__ = "ingested_events"
-    __table_args__ = (
-        Index(
-            "ix_ingested_events_tenant_time",
-            "tenant_id",
-            "ingest_time",
-        ),
-    )
+    __table_args__ = (Index("ix_ingested_events_org_time", "org_id", "ingest_time"),)
 
-    tenant_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("tenants.id"), primary_key=True
-    )
+    org_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
 
-    source: Mapped[str] = mapped_column(String(128))
-    type: Mapped[str] = mapped_column(String(128))
+    source_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source: Mapped[str] = mapped_column(String(255))  # CloudEvent.source
+    type: Mapped[str] = mapped_column(String(255))
     subject: Mapped[str] = mapped_column(String(255))
     event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ingest_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    blob_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    envelope_json: Mapped[str] = mapped_column(Text)
+
+# --------------------------------------------------------------------------
+# Classifier state (per-entity streaming baselines)
+# --------------------------------------------------------------------------
 
 
-class SinkOutcome(Base):
-    """Per-(event, sink) status. Populated by the worker.
+class EntityBaseline(Base):
+    """Per ``(org, subject, source_kind)`` rolling stats for anomaly scoring.
 
-    See docs/architecture/ingestion-pipeline.md §9.6 for failure semantics.
+    MVP uses Welford mean/variance on the inter-arrival gap (robust-z via
+    median/MAD is the planned upgrade, per RQ2). State is plain rows here, not
+    Flink keyed state, for the single-node MVP.
     """
 
-    __tablename__ = "sink_outcomes"
+    __tablename__ = "entity_baselines"
 
-    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    sink_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    subject: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source_kind: Mapped[str] = mapped_column(String(32), primary_key=True)
 
-    status: Mapped[str] = mapped_column(String(32))  # pending | success | failed
+    n: Mapped[int] = mapped_column(Integer, default=0)
+    mean_gap: Mapped[float] = mapped_column(Float, default=0.0)
+    m2_gap: Mapped[float] = mapped_column(Float, default=0.0)  # Welford sum of squares
+    last_event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+# --------------------------------------------------------------------------
+# Builder state (idempotency, conversation log, snapshot index)
+# --------------------------------------------------------------------------
+
+
+class BuildLedger(Base):
+    """Idempotency + status for one incorporation build.
+
+    ``dedupe_key`` is the CloudEvent ``(source, id)`` for a fast event, or the
+    window id for a batch Context Unit (proposal §Idempotency: at-least-once +
+    consumer dedupe). A build with status=success short-circuits redelivery.
+    """
+
+    __tablename__ = "build_ledger"
+
+    org_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dedupe_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+
+    build_id: Mapped[str] = mapped_column(String(64))  # uuid4 hex
+    lane: Mapped[str] = mapped_column(String(16))  # fast | batch
+    status: Mapped[str] = mapped_column(String(16))  # running | success | failed
+    snapshot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
-class VectorDocument(Base):
-    """Sidecar metadata for the per-tenant on-disk FAISS index.
+class ConversationLog(Base):
+    """URL-addressable raw-conversation log: one row per build's transcript.
 
-    Populated by FaissSink (apps/worker/sinks/faiss.py); read by
-    /api/v1/documents/vectors. Vectors themselves live in the binary FAISS
-    file at `{faiss_dir}/{tenant_id}.index`; `faiss_id` is the row index
-    inside that file. See docs/architecture/ingestion-pipeline.md §9.9.
+    The MCP ``context_get_urls`` tool resolves a URL to one of these rows. The
+    transcript / files-changed / usage are stored as JSON text.
     """
 
-    __tablename__ = "vector_documents"
+    __tablename__ = "conversation_log"
+    __table_args__ = (Index("ix_conversation_org_time", "org_id", "created_at"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    event_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex == URL id
+    org_id: Mapped[str] = mapped_column(String(64))
+    build_id: Mapped[str] = mapped_column(String(64))
+    dedupe_key: Mapped[str] = mapped_column(String(512))
+    lane: Mapped[str] = mapped_column(String(16))
 
-    faiss_id: Mapped[int] = mapped_column(Integer)
-    dim: Mapped[int] = mapped_column(Integer)
+    harness: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    instruction: Mapped[str] = mapped_column(Text)
+    transcript_json: Mapped[str] = mapped_column(Text)
+    files_changed_json: Mapped[str] = mapped_column(Text)
+    usage_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stop_reason: Mapped[str] = mapped_column(String(32))
+    snapshot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    source: Mapped[str] = mapped_column(String(128))
-    type: Mapped[str] = mapped_column(String(128))
-    subject: Mapped[str] = mapped_column(String(255))
-    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ingest_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    text_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+class FsSnapshot(Base):
+    """Snapshot index for an org's AgentFS. Only successful builds add a row, so
+    ``latest`` for an org == the most recent row — the consistent view the MCP
+    read path mounts (monotonic reads; never the live in-progress build)."""
+
+    __tablename__ = "fs_snapshots"
+    __table_args__ = (Index("ix_fs_snapshots_org_time", "org_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex == snapshot_id
+    org_id: Mapped[str] = mapped_column(String(64))
+    build_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    parent_snapshot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16))  # genesis | build
+    ref: Mapped[str] = mapped_column(Text)  # backend handle (snapshot path / git sha / branch)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

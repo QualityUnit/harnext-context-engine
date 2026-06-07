@@ -1,25 +1,23 @@
-.PHONY: help up down logs ps install bootstrap api worker web clean fmt lint typecheck test smoke
+.PHONY: help up down logs ps install topics ingest classifier builder mcp web fmt lint typecheck test clean
 
 help:
 	@echo "Infra:"
-	@echo "  make up         — start FalkorDB + Redpanda + MinIO"
+	@echo "  make up         — start Redpanda (Kafka)"
 	@echo "  make down       — stop infra"
 	@echo "  make logs       — tail infra logs"
 	@echo "  make ps         — status of infra containers"
+	@echo "  make topics     — create the cms.events.* topics"
 	@echo ""
-	@echo "Dev:"
-	@echo "  make install    — install Python (uv) and JS (pnpm) deps"
-	@echo "  make bootstrap  — create DB tables, ensure MinIO bucket, seed default tenant"
-	@echo "  make api        — run the Ingest API (FastAPI) on :8000"
-	@echo "  make worker     — run the ingestion worker"
-	@echo "  make web        — run the Next.js dashboard on :3000"
-	@echo "  make smoke      — POST a sample event via curl"
+	@echo "Dev (run each in its own shell):"
+	@echo "  make ingest     — Ingest API + connectors (FastAPI) on :8000"
+	@echo "  make classifier — fast/batch router"
+	@echo "  make builder    — AgentFS builder consumer"
+	@echo "  make mcp         — MCP context server on :8765"
+	@echo "  make web        — Next.js source-connection UI on :3100"
 	@echo ""
 	@echo "Quality:"
-	@echo "  make fmt        — format Python (ruff)"
-	@echo "  make lint       — lint Python (ruff) + JS (next lint)"
-	@echo "  make typecheck  — pyright + tsc"
-	@echo "  make test       — pytest"
+	@echo "  make install    — uv sync + pnpm install"
+	@echo "  make fmt / lint / typecheck / test"
 
 up:
 	docker compose -f infra/docker-compose.yml up -d
@@ -33,41 +31,41 @@ logs:
 ps:
 	docker compose -f infra/docker-compose.yml ps
 
+# Create the three lane topics (idempotent). fast=50 parts, batch=30, raw=50.
+topics:
+	docker exec meaninggrid-redpanda rpk topic create cms.events.raw.v1   -p 50 -r 1 || true
+	docker exec meaninggrid-redpanda rpk topic create cms.events.fast.v1  -p 50 -r 1 || true
+	docker exec meaninggrid-redpanda rpk topic create cms.events.batch.v1 -p 30 -r 1 || true
+	docker exec meaninggrid-redpanda rpk topic list
+
 install:
 	uv sync
 	pnpm install
 
-bootstrap:
-	uv run --package meaninggrid-api python -m meaninggrid_api.bootstrap
+ingest:
+	uv run --package meaninggrid-ingest uvicorn meaninggrid_ingest.main:app --reload --host 0.0.0.0 --port 8000
 
-smoke:
-	@echo "POST /api/v1/ingest …"
-	curl -s -X POST http://localhost:8000/api/v1/ingest \
-	  -H 'Content-Type: application/json' \
-	  -H 'X-Tenant-Id: default' \
-	  -d '{"source":"webhook:smoke","type":"smoke.test","subject":"smoke:1","data":{"hello":"world"}}' \
-	  | python -m json.tool
+classifier:
+	uv run --package meaninggrid-classifier python -m meaninggrid_classifier.main
 
-api:
-	uv run --package meaninggrid-api uvicorn meaninggrid_api.main:app --reload --host 0.0.0.0 --port 8000
+builder:
+	uv run --package meaninggrid-builder python -m meaninggrid_builder.main
 
-worker:
-	uv run --package meaninggrid-worker python -m meaninggrid_worker.main
+mcp:
+	uv run --package meaninggrid-mcp python -m meaninggrid_mcp.main
 
 web:
 	pnpm --filter @meaninggrid/web dev --port 3100
 
 fmt:
-	uv run ruff format .
-	uv run ruff check --fix .
+	uvx ruff format .
+	uvx ruff check --fix .
 
 lint:
-	uv run ruff check .
-	pnpm --filter @meaninggrid/web lint
+	uvx ruff check .
 
 typecheck:
-	uv run pyright
-	pnpm --filter @meaninggrid/web typecheck
+	uvx pyright
 
 test:
 	uv run pytest
@@ -75,4 +73,3 @@ test:
 clean:
 	rm -rf .venv .ruff_cache .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	pnpm --filter @meaninggrid/web exec rm -rf .next node_modules 2>/dev/null || true

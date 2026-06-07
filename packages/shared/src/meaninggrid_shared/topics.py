@@ -1,21 +1,30 @@
-"""Kafka topic name constants.
+"""Kafka topic names for the Context Management System (CMS).
 
-Topic taxonomy (see docs/architecture/ingestion-pipeline.md §7 and §9.6):
-    events.raw.v1            — the firehose
-    events.dlq.v1            — global DLQ (processor failures)
-    events.dlq.{sink}.v1     — per-sink DLQ (sink failures)
-    events.retry.{sink}.{delay}.v1  — per-sink retry tier
+Internal Kafka is never exposed past the CMS boundary. Events ride these
+topics as CloudEvents v1.0 (see envelope.py); the partition key is
+``f"{mgtenant}:{subject}"`` so a given entity's events stay ordered within a
+consumer group.
+
+Lane split (proposal §"Decision: Kafka direct"):
+    cms.events.raw.v1     — ingest firehose (every normalized source event)
+    cms.events.fast.v1    — urgent / signal-grade events, published on arrival
+    cms.events.batch.v1   — windowed Context Units, published at window close
+
+DLQ is per consumer group: ``{group}.dlq``.
 """
 
-RAW_EVENTS_TOPIC = "events.raw.v1"
-GLOBAL_DLQ_TOPIC = "events.dlq.v1"
+RAW_EVENTS_TOPIC = "cms.events.raw.v1"
+FAST_EVENTS_TOPIC = "cms.events.fast.v1"
+BATCH_EVENTS_TOPIC = "cms.events.batch.v1"
+
+# Consumer group names (one per role).
+CLASSIFIER_GROUP = "cms.classifier"
+BUILDER_FAST_GROUP = "cms.builder.fast"
+BUILDER_BATCH_GROUP = "cms.builder.batch"
+
+ALL_TOPICS = (RAW_EVENTS_TOPIC, FAST_EVENTS_TOPIC, BATCH_EVENTS_TOPIC)
 
 
-def dlq_topic_for(sink_name: str) -> str:
-    """e.g. dlq_topic_for('graphiti') -> 'events.dlq.graphiti.v1'"""
-    return f"events.dlq.{sink_name}.v1"
-
-
-def retry_topic_for(sink_name: str, delay_label: str) -> str:
-    """e.g. retry_topic_for('graphiti', '5s') -> 'events.retry.graphiti.5s.v1'"""
-    return f"events.retry.{sink_name}.{delay_label}.v1"
+def dlq_topic_for(group: str) -> str:
+    """e.g. dlq_topic_for('cms.builder.fast') -> 'cms.builder.fast.dlq'"""
+    return f"{group}.dlq"

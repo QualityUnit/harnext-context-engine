@@ -1,11 +1,11 @@
 [project]
 name = "meaninggrid"
-version = "0.0.1"
-description = "Semantic intelligence platform — ingestion pipeline + dashboard."
+version = "0.1.0"
+description = "Open-source streaming Context Engine for AI agents (AgentFS-backed CMS)."
 requires-python = ">=3.12"
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/mcp", "apps/worker", "packages/shared"]
+members = ["apps/ingest", "apps/classifier", "apps/builder", "apps/mcp", "packages/shared"]
 
 [tool.uv.sources]
 meaninggrid-shared = { workspace = true }
