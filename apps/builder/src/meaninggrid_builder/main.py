@@ -22,6 +22,7 @@ from meaninggrid_builder.consumer import LaneConsumer
 from meaninggrid_builder.dispatcher import Dispatcher
 from meaninggrid_builder.dlq import Dlq
 from meaninggrid_builder.persistence import Persistence
+from meaninggrid_builder.reconcile import reconcile
 from meaninggrid_builder.settings import BuilderSettings
 
 log = logging.getLogger("builder")
@@ -34,6 +35,7 @@ async def run_async() -> None:
     sm = make_sessionmaker(engine)
 
     store = OrgFsStore(get_backend(settings), sm)
+    await reconcile(store, sm)
     build_runner = BuildRunner(store, Persistence(sm), settings)
     dlq = Dlq(settings.kafka_bootstrap_servers)
     await dlq.start()

@@ -1,148 +1,115 @@
-# meaninggrid
+# MeaningGrid — Streaming Context Engine
 
-> Turn heterogeneous business signals — calls, emails, CRM events, documents, clicks — into a queryable, bitemporal knowledge graph.
+An open-source **Context Management System (CMS)** for streaming AI agents. It
+ingests heterogeneous events (GitHub, Slack, …), routes each onto a **fast** or
+**batch** lane, and incorporates them into a living, per-organization **context
+filesystem** maintained by a real coding agent (Claude Code / Codex) running over
+[AgentFS](https://docs.turso.tech/agentfs/introduction). The org's context is
+exposed to *external* agentic systems only through an **MCP server**.
 
-An open-source semantic intelligence platform. Ingest events from any source, let Graphiti extract entities and facts via LLM, query the resulting graph from a Next.js dashboard.
+This is the reference implementation for the thesis *"Open-Source Context Engine
+for Streaming AI Agents."* The novel component is the **builder**: instead of a
+fixed ETL pipeline, a stateless coding agent decides how to organize and
+supersede knowledge in a filesystem.
 
-**Status:** v0 — end-to-end ingestion → graph works locally. See [`docs/architecture/`](./docs/architecture/) for the source-of-truth design and [Roadmap](#roadmap) for what's next.
-
----
-
-## Architecture at a glance
+## Architecture
 
 ```
-                                       ┌──────────────────┐
-                                       │   MinIO (blobs)  │
-                                       └────────▲─────────┘
-                                                │
- ┌────────┐   HTTP    ┌─────────┐   produce   ┌─┴──────────┐   consume   ┌──────────┐   add_episode  ┌──────────┐
- │ Source │──────────▶│ Adapter │────────────▶│ Ingest API │────────────▶│  Worker  │───────────────▶│ Graphiti │
- └────────┘  webhook  └─────────┘  CloudEvent └────────────┘ events.raw  └──────────┘   bitemporal   └─────┬────┘
-              upload                                                                                       │
-                                                                                                           ▼
-                                                                                                     ┌──────────┐
-                                                                                                     │ FalkorDB │
-                                                                                                     └──────────┘
+GitHub / Slack
+   │  connector → CloudEvents v1.0  (subject = entity key, mgtenant = org)
+   ▼
+apps/ingest ──► Kafka: cms.events.raw.v1
+                       │
+                       ▼
+apps/classifier   rules floor + per-entity anomaly score; batch windowing
+        │ FAST (per event, on arrival)          │ BATCH (per-entity window)
+        ▼                                        ▼
+   cms.events.fast.v1                       cms.events.batch.v1
+        └──────────────┬─────────────────────────┘
+                       ▼
+apps/builder   (stateless, one writer per org)
+   ensure org AgentFS → run the harness in the mounted FS to incorporate the
+   event(s) → snapshot + raw-conversation log + build ledger
+   stores:  AgentFS .db per org   +   conversation log   +   ledger/snapshots (SQLite)
+                       │ reads the latest snapshot (consistent view)
+                       ▼
+apps/mcp   context_research · context_get_urls · context_update   ◄── external agents
+
+apps/web   minimal UI to connect a source and watch it flow
 ```
 
-| Layer        | Tech                                                        |
-|--------------|-------------------------------------------------------------|
-| Frontend     | Next.js 15 (App Router) · React 19 · Cytoscape.js · Tailwind 4 · SWR |
-| Backend API  | FastAPI · `aiokafka` · SQLAlchemy 2 async · `aioboto3`      |
-| Worker       | Async Python · `aiokafka` consumer · `pypdf` extraction     |
-| Knowledge graph | [Graphiti](https://github.com/getzep/graphiti) with the FalkorDB driver |
-| LLM + embedder | Local [Ollama](https://ollama.com) (OpenAI-compatible API) |
-| Streaming   | Redpanda (Kafka-compatible)                                  |
-| Blob storage | MinIO (S3-compatible)                                       |
-| OLTP store  | SQLite via `aiosqlite` (Postgres-swappable)                 |
+- **One AgentFS `.db` per org** is the tenant boundary and the system of record.
+  The builder mounts it via `agentfs exec`, the agent edits markdown files
+  (`INDEX.md`, `entities/<subject>/{OVERVIEW,facts,timeline}.md`, `_meta/…`), and
+  the result is snapshotted. A `git`-backed directory backend (used by the tests)
+  is selectable via `AGENTFS_BACKEND`.
+- **Harness-agnostic**: Claude Code (Claude Agent SDK, default) or Codex behind
+  one interface; pick with `MEANINGGRID_HARNESS`. A `fake` harness runs the whole
+  pipeline deterministically without an API key.
+- **MCP is the only external surface.** External agents never touch Kafka or the
+  store; they read a synthesized answer and write via an internal agent.
 
-The pipeline is multi-tenant by construction (every Kafka key, Graphiti `group_id`, and OLTP row carries `tenant_id`) and bitemporal (every write carries both `event_time` and `ingest_time`). Worker is structured as **Processors (sequential middleware) → Sinks (parallel)** so adding a new enrichment or a new sink is a one-file change.
-
-## What works today
-
-- **Ingest API** — `POST /api/v1/ingest` (JSON), `POST /api/v1/ingest/file` (multipart, PDFs + text)
-- **Read API** — `GET /api/v1/events`, `GET /api/v1/events/{id}`, `GET /api/v1/graph`, `GET /api/v1/entities/search`
-- **Worker** — consumes `events.raw.v1`, runs `ExtractTextProcessor` (PDFs/text), writes Graphiti episodes, records per-sink outcomes, ships failures to a global DLQ
-- **Dashboard** — events list (auto-refreshing), event detail with sink status, **Cytoscape graph view** with fcose layout, ingest form (JSON event + file upload)
-- **Local stack** — single `docker compose up` brings Redpanda + FalkorDB + MinIO
-
-## Quickstart
-
-Prerequisites: [`uv`](https://docs.astral.sh/uv/), [`pnpm`](https://pnpm.io), Docker, and a running [Ollama](https://ollama.com).
+## Quick start
 
 ```bash
-git clone git@github.com:yasha-dev1/meaninggrid.git
-cd meaninggrid
-cp .env.example .env
+# 0. prerequisites: docker, uv, pnpm, and AgentFS
+curl -fsSL https://agentfs.ai/install | bash      # installs `agentfs`
+make install                                       # uv sync + pnpm install
 
-# Pull a small LLM + embedder for Graphiti (~2.3GB total)
-ollama pull qwen2.5:3b
-ollama pull nomic-embed-text
+# 1. infra + topics
+make up && make topics
 
-# Bring up infra and install deps
-make up                    # Redpanda + FalkorDB + MinIO (wait until `make ps` shows healthy)
-make install               # uv sync --all-packages + pnpm install
-make bootstrap             # SQLite tables, MinIO bucket, seed 'default' tenant
+# 2. configure: copy .env.example → .env and set ANTHROPIC_API_KEY
+#    (or set MEANINGGRID_HARNESS=fake to run without a key)
+
+# 3. run each service in its own shell
+make ingest      # FastAPI on :8000 (serves the UI)
+make classifier  # fast/batch router
+make builder     # AgentFS builder
+make mcp         # MCP context server on :8765
+make web         # UI on :3100
 ```
 
-Then in three terminals:
+In the UI (`http://localhost:3100`) connect a public GitHub repo (e.g.
+`vercel/swr`) to org `acme` and click **Sync now**.
+
+### Smoke test (no network, no API key)
 
 ```bash
-make api       # Ingest + read API on :8000     → http://localhost:8000/docs
-make worker    # Ingestion worker (consumes Kafka, writes to Graphiti)
-make web       # Next.js dashboard on :3100     → http://localhost:3100
+MEANINGGRID_HARNESS=fake make classifier      # in one shell
+MEANINGGRID_HARNESS=fake make builder         # in another
+uv run --package meaninggrid-builder python scripts/smoke.py   # produce events
 ```
 
-`make help` lists every target.
+The 3 commits batch into one Context Unit; the P0 issue goes fast; the builder
+incorporates both into `data/agentfs/.agentfs/acme.db`.
 
-## Try it
+## Layout
 
-Open <http://localhost:3100/ingest> and post a JSON event (or upload a PDF). Or from the shell:
+| Path | What |
+|------|------|
+| `packages/shared` | CloudEvent envelope, ContextUnit, topics, DB models, session helpers |
+| `apps/ingest` | source registry API + GitHub/Slack connectors → raw topic |
+| `apps/classifier` | fast/batch routing (rules + anomaly) + batch windowing |
+| `apps/builder` | the builder: AgentFS store, harness, build runner, Kafka consumers |
+| `apps/mcp` | the external MCP surface (research / get_urls / update) |
+| `apps/web` | minimal Next.js source-connection UI |
+
+## Development
 
 ```bash
-make smoke
+make test        # pytest (runs the git + agentfs backends)
+make lint        # ruff
+make typecheck   # pyright
 ```
 
-Watch the event flow:
-1. **`/events`** — new row appears within ~5s (auto-refreshes)
-2. **Worker log** — `sink=graphiti event=… ok` when Graphiti finishes entity extraction (5–60s; first call loads the model)
-3. **`/events/{id}`** — graphiti sink status flips to `success`
-4. **`/graph`** — entities/edges Graphiti extracted appear on the Cytoscape canvas
+## Status & scope (v1)
 
-Auth in v0 is just the `X-Tenant-Id` header. The dashboard sends `default` (the seeded tenant); change it via browser localStorage `meaninggrid.tenant` if you set up more tenants.
+Working end to end: ingest → classify → build → MCP, with idempotency, per-org
+single-writer serialization, snapshots, DLQ, and startup reconciliation.
 
-## Project layout
-
-```
-meaninggrid/
-├── apps/
-│   ├── api/        FastAPI service: ingest + read endpoints
-│   ├── worker/     async Python: Kafka consumer + processor chain + sinks
-│   └── web/        Next.js 15 dashboard
-├── packages/
-│   └── shared/     CloudEvent envelope, Processor/Sink protocols, OLTP models
-├── infra/
-│   └── docker-compose.yml      Redpanda + FalkorDB + MinIO
-├── docs/
-│   └── architecture/           ingestion-pipeline.md, dashboard.md
-├── data/           SQLite + local state (gitignored)
-├── pyproject.toml  uv workspace root
-└── pnpm-workspace.yaml
-```
-
-## Configuration
-
-All env vars live in `.env` (copy from `.env.example`). Key ones:
-
-| Var                       | Default                                | Notes                                    |
-|---------------------------|----------------------------------------|------------------------------------------|
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092`                       | Redpanda Kafka API                       |
-| `FALKORDB_HOST` / `PORT`  | `localhost` / `6380`                   | Mapped to 6380 to avoid local Redis      |
-| `MINIO_ENDPOINT`          | `http://localhost:9000`                | Blobs                                    |
-| `LLM_BASE_URL`            | `http://localhost:11434/v1`            | Ollama's OpenAI-compatible endpoint      |
-| `LLM_MODEL`               | `qwen2.5:3b`                           | Anything Ollama serves. Bigger = better extraction, more memory. |
-| `EMBEDDING_MODEL`         | `nomic-embed-text` (768d)              | Override `EMBEDDING_DIM` if you change it |
-| `DATABASE_URL`            | `sqlite+aiosqlite:///./data/...`       | Postgres-swappable                       |
-
-## Roadmap
-
-Each is documented as a planned extension in `docs/architecture/`:
-
-- **AI processors** — sentiment, summary, themes, label assignment, churn risk, operator quality, script compliance. Each is a single `Processor` per [§9.7](./docs/architecture/ingestion-pipeline.md).
-- **Additional sinks** — Qdrant for vectors, Postgres for analytics, audit log. Each is a single `Sink` per [§9.8](./docs/architecture/ingestion-pipeline.md).
-- **CRM write-back** — egress sibling of ingestion (Pipedrive, Zendesk, etc.).
-- **Real-time path** — streaming transcription + competitor battlecards on live calls.
-- **Source adapters** — Pipedrive, Zendesk, email, Twilio. Each plugs into the existing `/ingest` endpoint via the universal CloudEvents envelope.
-- **Per-sink retry topics** — `events.retry.{sink}.{delay}.v1` for graceful exponential backoff.
-- **Real auth** — SSO/JWT replacing the `X-Tenant-Id` header.
-
-## Architecture docs
-
-Read these in order:
-
-1. [`docs/architecture/ingestion-pipeline.md`](./docs/architecture/ingestion-pipeline.md) — how events flow from any source into Graphiti. Covers the envelope, Kafka topology, worker pipeline (processors + sinks), failure semantics, multi-tenancy, the SQLite OLTP rationale.
-2. [`docs/architecture/dashboard.md`](./docs/architecture/dashboard.md) — frontend architecture, what we borrow vs. adapt from FalkorDB Browser, the wire shape for `/graph`, embedding access strategy.
-
-## License
-
-[MIT](./LICENSE)
+Deferred (future work): HBOS/Flink anomaly detection, RQ3 sketch-based Context
+Units, Docker sandbox, a bitemporal graph + RAG store, multi-node sharding,
+webhooks, an encrypted token vault, and the SWE-bench-Live / ProAgentBench
+evaluation harnesses. The prior Graphiti/FalkorDB v0 lives on branch
+`archive/v0-graphiti`.
