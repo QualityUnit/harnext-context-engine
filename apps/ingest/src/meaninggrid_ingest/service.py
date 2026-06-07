@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import Protocol
 
 from meaninggrid_shared import (
     RAW_EVENTS_TOPIC,
     BuildLedger,
+    CloudEvent,
     IngestedEvent,
     Org,
     Source,
@@ -18,15 +20,18 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meaninggrid_ingest.connectors import get_connector
-from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.settings import IngestSettings
+
+
+class ProducerLike(Protocol):
+    async def send_event(self, topic: str, event: CloudEvent) -> None: ...
 
 
 class SourceService:
     def __init__(
         self,
         sessionmaker: async_sessionmaker[AsyncSession],
-        producer: Producer,
+        producer: ProducerLike,
         settings: IngestSettings,
     ) -> None:
         self.sm = sessionmaker

@@ -13,8 +13,8 @@ class FakeProducer:
     def __init__(self):
         self.sent = []
 
-    async def send_event(self, topic, ev):
-        self.sent.append((topic, ev))
+    async def send_event(self, topic, event):
+        self.sent.append((topic, event))
 
 
 async def test_github_connector_builds_events(monkeypatch):
