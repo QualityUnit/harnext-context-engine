@@ -9,6 +9,10 @@ const STATUS_COLORS: Record<string, string> = {
   fast: "bg-sky-500/15 text-sky-300 border-sky-500/30",
   batch: "bg-violet-500/15 text-violet-300 border-violet-500/30",
   update: "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
+  github: "bg-neutral-100/10 text-neutral-200 border-neutral-400/30",
+  slack: "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30",
+  connected: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  "not connected": "bg-neutral-500/15 text-neutral-400 border-neutral-600/30",
 };
 
 export function Badge({ value }: { value: string }) {
@@ -20,7 +24,7 @@ export function Badge({ value }: { value: string }) {
   );
 }
 
-export function Card({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+export function Card({ title, children, action }: { title: React.ReactNode; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section className="rounded-xl border border-neutral-800 bg-neutral-900/40">
       <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">

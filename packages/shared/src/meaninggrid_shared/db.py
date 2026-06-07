@@ -50,19 +50,39 @@ class Base(DeclarativeBase):
 
 
 # --------------------------------------------------------------------------
-# Source registry (control plane for the web UI + connectors)
+# Accounts + projects (control plane for the dashboard)
 # --------------------------------------------------------------------------
 
 
-class Org(Base):
-    """A tenant. ``org.id`` == the CloudEvent ``mgtenant`` extension == the
-    boundary for one AgentFS store. No cross-org access, anywhere."""
+class User(Base):
+    """A dashboard account. Demo auth: a username, no password."""
 
-    __tablename__ = "orgs"
+    __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    name: Mapped[str] = mapped_column(String(255))
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    username: Mapped[str] = mapped_column(String(255), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Project(Base):
+    """A project owned by a user. ``project.id`` == the CloudEvent ``mgtenant``
+    extension == the boundary for one AgentFS store. No cross-project access.
+
+    OAuth integration state (the access token obtained when the user connects
+    GitHub/Slack) lives here; sources created in the project reuse it."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex == org_id
+    name: Mapped[str] = mapped_column(String(255))
+    owner_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    github_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    github_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    slack_team_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    slack_token: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Source(Base):
@@ -78,7 +98,7 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
-    org_id: Mapped[str] = mapped_column(String(64), ForeignKey("orgs.id"))
+    org_id: Mapped[str] = mapped_column(String(64), ForeignKey("projects.id"))  # project id
     kind: Mapped[str] = mapped_column(String(32))  # github | slack
     config_json: Mapped[str] = mapped_column(Text)
     secret: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,5 +1,5 @@
-"""Source registry + sync service: registers sources and pulls their activity
-into the raw Kafka topic, recording a slim IngestedEvent per event."""
+"""Control-plane + sync service: users, projects, sources, and the sync that
+pulls a source's activity into the raw Kafka topic."""
 
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ from meaninggrid_shared import (
     BuildLedger,
     CloudEvent,
     IngestedEvent,
-    Org,
+    Project,
     Source,
+    User,
     utcnow,
 )
 from sqlalchemy import desc, select
@@ -38,27 +39,83 @@ class SourceService:
         self.producer = producer
         self.s = settings
 
-    async def ensure_org(self, org_id: str, name: str | None = None) -> Org:
+    # -- auth (demo: username, no password) --------------------------------
+    async def login(self, username: str) -> User:
         async with self.sm() as s:
-            org = await s.get(Org, org_id)
-            if org is None:
-                org = Org(id=org_id, name=name or org_id)
-                s.add(org)
+            user = (
+                await s.execute(select(User).where(User.username == username))
+            ).scalar_one_or_none()
+            if user is None:
+                user = User(id=uuid.uuid4().hex, username=username)
+                s.add(user)
                 await s.commit()
-                await s.refresh(org)
-            return org
+                await s.refresh(user)
+            return user
 
-    async def list_orgs(self) -> list[Org]:
+    # -- projects ----------------------------------------------------------
+    async def create_project(self, owner_id: str, name: str) -> Project:
+        proj = Project(id=uuid.uuid4().hex, name=name, owner_id=owner_id)
         async with self.sm() as s:
-            return list((await s.execute(select(Org).order_by(Org.created_at))).scalars())
+            s.add(proj)
+            await s.commit()
+            await s.refresh(proj)
+        return proj
 
+    async def list_projects(self, owner_id: str) -> list[Project]:
+        async with self.sm() as s:
+            q = select(Project).where(Project.owner_id == owner_id).order_by(Project.created_at)
+            return list((await s.execute(q)).scalars())
+
+    async def get_project(self, project_id: str) -> Project | None:
+        async with self.sm() as s:
+            return await s.get(Project, project_id)
+
+    async def delete_project(self, project_id: str) -> bool:
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj is None:
+                return False
+            await s.delete(proj)
+            await s.commit()
+            return True
+
+    async def set_github_token(self, project_id: str, login: str | None, token: str) -> None:
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj:
+                proj.github_login = login
+                proj.github_token = token
+                await s.commit()
+
+    async def set_slack_token(
+        self, project_id: str, team_id: str | None, team_name: str | None, token: str
+    ) -> None:
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj:
+                proj.slack_team_id = team_id
+                proj.slack_team_name = team_name
+                proj.slack_token = token
+                await s.commit()
+
+    # -- sources -----------------------------------------------------------
     async def create_source(
-        self, org_id: str, kind: str, config: dict, secret: str | None
+        self, project_id: str, kind: str, config: dict, secret: str | None = None
     ) -> Source:
-        await self.ensure_org(org_id)
+        proj = await self.get_project(project_id)
+        if proj is None:
+            raise KeyError(project_id)
+        if secret is None:  # reuse the project's OAuth token
+            secret = (
+                proj.github_token
+                if kind == "github"
+                else proj.slack_token
+                if kind == "slack"
+                else None
+            )
         src = Source(
             id=uuid.uuid4().hex,
-            org_id=org_id,
+            org_id=project_id,
             kind=kind,
             config_json=json.dumps(config),
             secret=secret,
@@ -70,11 +127,11 @@ class SourceService:
             await s.refresh(src)
         return src
 
-    async def list_sources(self, org_id: str | None) -> list[Source]:
+    async def list_sources(self, project_id: str | None) -> list[Source]:
         async with self.sm() as s:
             q = select(Source).order_by(Source.created_at)
-            if org_id:
-                q = q.where(Source.org_id == org_id)
+            if project_id:
+                q = q.where(Source.org_id == project_id)
             return list((await s.execute(q)).scalars())
 
     async def get_source(self, source_id: str) -> Source | None:
@@ -91,8 +148,6 @@ class SourceService:
             return True
 
     async def sync(self, source_id: str) -> int:
-        """Pull new activity, produce to the raw topic, advance the cursor.
-        Returns the number of events ingested. Records last_error on failure."""
         src = await self.get_source(source_id)
         if src is None:
             raise KeyError(source_id)
@@ -114,7 +169,7 @@ class SourceService:
             await self._mark_error(source_id, str(e))
             raise
 
-    async def _record_ingested(self, src: Source, ev) -> None:
+    async def _record_ingested(self, src: Source, ev: CloudEvent) -> None:
         async with self.sm() as s:
             await s.merge(
                 IngestedEvent(
@@ -148,21 +203,21 @@ class SourceService:
                 src.last_error = error[:2000]
                 await s.commit()
 
-    async def list_events(self, org_id: str, limit: int = 50) -> list[IngestedEvent]:
+    async def list_events(self, project_id: str, limit: int = 50) -> list[IngestedEvent]:
         async with self.sm() as s:
             q = (
                 select(IngestedEvent)
-                .where(IngestedEvent.org_id == org_id)
+                .where(IngestedEvent.org_id == project_id)
                 .order_by(desc(IngestedEvent.ingest_time))
                 .limit(limit)
             )
             return list((await s.execute(q)).scalars())
 
-    async def list_builds(self, org_id: str, limit: int = 50) -> list[BuildLedger]:
+    async def list_builds(self, project_id: str, limit: int = 50) -> list[BuildLedger]:
         async with self.sm() as s:
             q = (
                 select(BuildLedger)
-                .where(BuildLedger.org_id == org_id)
+                .where(BuildLedger.org_id == project_id)
                 .order_by(desc(BuildLedger.updated_at))
                 .limit(limit)
             )

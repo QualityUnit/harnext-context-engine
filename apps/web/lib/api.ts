@@ -1,6 +1,23 @@
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+export interface User {
+  id: string;
+  username: string;
+  created_at: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  owner_id: string;
+  created_at: string;
+  github_login: string | null;
+  github_connected: boolean;
+  slack_team_name: string | null;
+  slack_connected: boolean;
+}
+
 export interface Source {
   id: string;
   org_id: string;
@@ -34,36 +51,57 @@ export interface Build {
   updated_at: string;
 }
 
-export interface SourceCreate {
-  org_id: string;
-  kind: string;
-  config: Record<string, unknown>;
-  secret: string | null;
+export interface Health {
+  ok: boolean;
+  kinds: string[];
+  oauth: { github: boolean; slack: boolean };
 }
 
-export const fetcher = async <T>(path: string): Promise<T> => {
-  const res = await fetch(`${API_BASE}${path}`);
+export interface Repo {
+  full_name: string;
+}
+export interface Channel {
+  id: string;
+  name: string;
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json() as Promise<T>;
+}
+
+const json = (body: unknown): RequestInit => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+export const fetcher = <T>(path: string) => req<T>(path);
+
+export const api = {
+  health: () => req<Health>("/health"),
+  login: (username: string) => req<User>("/auth/login", json({ username })),
+
+  createProject: (owner_id: string, name: string) =>
+    req<Project>("/projects", json({ owner_id, name })),
+  listProjects: (owner_id: string) => req<Project[]>(`/projects?owner_id=${owner_id}`),
+  getProject: (id: string) => req<Project>(`/projects/${id}`),
+  deleteProject: (id: string) => req<unknown>(`/projects/${id}`, { method: "DELETE" }),
+
+  oauthStartUrl: (provider: string, projectId: string) =>
+    `${API_BASE}/oauth/${provider}/start?project_id=${projectId}`,
+  listRepos: (projectId: string) => req<Repo[]>(`/oauth/github/repos?project_id=${projectId}`),
+  listChannels: (projectId: string) =>
+    req<Channel[]>(`/oauth/slack/channels?project_id=${projectId}`),
+
+  createSource: (
+    project_id: string,
+    kind: string,
+    config: Record<string, unknown>,
+    secret?: string | null,
+  ) => req<Source>("/sources", json({ project_id, kind, config, secret: secret ?? null })),
+  listSources: (projectId: string) => req<Source[]>(`/sources?project_id=${projectId}`),
+  syncSource: (id: string) => req<{ ingested: number }>(`/sources/${id}/sync`, { method: "POST" }),
+  deleteSource: (id: string) => req<unknown>(`/sources/${id}`, { method: "DELETE" }),
 };
-
-export async function createSource(body: SourceCreate): Promise<Source> {
-  const res = await fetch(`${API_BASE}/sources`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-export async function syncSource(id: string): Promise<{ ingested: number }> {
-  const res = await fetch(`${API_BASE}/sources/${id}/sync`, { method: "POST" });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-export async function deleteSource(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/sources/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(await res.text());
-}

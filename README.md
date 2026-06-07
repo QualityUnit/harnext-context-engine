@@ -70,8 +70,27 @@ make mcp         # MCP context server on :8765
 make web         # UI on :3100
 ```
 
-In the UI (`http://localhost:3100`) connect a public GitHub repo (e.g.
-`vercel/swr`) to org `acme` and click **Sync now**.
+Then open the dashboard at **`http://localhost:3100`**:
+
+1. **Sign in** — pick a username (demo auth, no password).
+2. **Create a project** — this is a tenant; its id is the `mgtenant` used throughout.
+3. **Connect a source** — *Connect GitHub* / *Connect Slack* (OAuth), or use
+   *advanced: add manually* to add a public repo with no setup. Pick a repo/channel.
+4. **Sync now** — events flow ingest → classify → build, and the *Recent events*
+   and *Context builds* panels light up.
+
+### OAuth setup (for the Connect buttons)
+
+Register your own apps and put the credentials in `.env`:
+
+- **GitHub** → an OAuth App with callback `http://localhost:8000/oauth/github/callback`
+  → set `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`.
+- **Slack** → an app with redirect `http://localhost:8000/oauth/slack/callback` and
+  scopes `channels:history,channels:read` → set `SLACK_OAUTH_CLIENT_ID` /
+  `SLACK_OAUTH_CLIENT_SECRET`.
+
+Without them, the *Connect* buttons are disabled and you use the manual path (a
+public GitHub repo needs no token at all).
 
 ### Smoke test (no network, no API key)
 
