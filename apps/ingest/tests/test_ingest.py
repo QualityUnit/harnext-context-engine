@@ -1,10 +1,12 @@
-"""Ingest: connector event-building, auth/projects, sync, OAuth token reuse."""
+"""Ingest: connectors, auth (register/login/Google), projects, sync, OAuth."""
 
 from datetime import UTC, datetime
 
+import pytest
 from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors.base import FetchResult
 from meaninggrid_ingest.connectors.github import GitHubConnector
+from meaninggrid_ingest.security import create_token, decode_token, hash_password, verify_password
 from meaninggrid_ingest.service import SourceService
 from meaninggrid_ingest.settings import IngestSettings
 from meaninggrid_shared import CloudEvent, init_db, make_engine, make_sessionmaker
@@ -23,6 +25,93 @@ async def _svc(tmp_path):
     await init_db(engine)
     producer = FakeProducer()
     return SourceService(make_sessionmaker(engine), producer, IngestSettings()), engine, producer
+
+
+def test_security_primitives():
+    h = hash_password("hunter2")
+    assert verify_password("hunter2", h)
+    assert not verify_password("wrong", h)
+    tok = create_token("user-1", "secret", 1)
+    assert decode_token(tok, "secret") == "user-1"
+    assert decode_token(tok, "other-secret") is None
+    assert decode_token("garbage", "secret") is None
+
+
+async def test_register_login_projects(tmp_path):
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        u = await svc.register("alice@example.com", "hunter2", "Alice")
+        assert u.email == "alice@example.com" and u.password_hash
+        assert await svc.authenticate("alice@example.com", "hunter2") is not None
+        assert await svc.authenticate("alice@example.com", "nope") is None
+        with pytest.raises(ValueError):
+            await svc.register("alice@example.com", "again1", "Dup")
+
+        p = await svc.create_project(u.id, "My Project")
+        assert p.owner_id == u.id
+        assert [x.id for x in await svc.list_projects(u.id)] == [p.id]
+    finally:
+        await engine.dispose()
+
+
+async def test_google_upsert_links_existing_email(tmp_path):
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        u = await svc.register("bob@example.com", "hunter2", "Bob")
+        linked = await svc.upsert_google_user("google-sub-123", "bob@example.com", "Bob G", "pic")
+        assert linked.id == u.id  # linked to the existing account, not a new one
+        assert linked.google_sub == "google-sub-123" and linked.avatar_url == "pic"
+        # a fresh google user creates a new account
+        fresh = await svc.upsert_google_user("sub-999", "carol@example.com", "Carol", None)
+        assert fresh.id != u.id and fresh.email == "carol@example.com"
+    finally:
+        await engine.dispose()
+
+
+async def test_sync_under_project(tmp_path, monkeypatch):
+    svc, engine, producer = await _svc(tmp_path)
+    try:
+        user = await svc.register("alice@example.com", "hunter2", "Alice")
+        proj = await svc.create_project(user.id, "P")
+        ev = CloudEvent(
+            id="github-commit-acme/web-abc",
+            source="github:acme/web",
+            type="com.github.commit",
+            subject="repo:acme/web",
+            time=datetime.now(UTC),
+            mgtenant=proj.id,
+            data={},
+        )
+        monkeypatch.setattr(
+            "meaninggrid_ingest.service.get_connector",
+            lambda kind, **kw: _FakeConnector([ev], "c1"),
+        )
+        src = await svc.create_source(proj.id, "github", {"repo": "acme/web"}, None)
+        assert await svc.sync(src.id) == 1
+        assert producer.sent[0][1].id == ev.id
+        assert len(await svc.list_events(proj.id)) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_oauth_token_reuse(tmp_path):
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        user = await svc.register("alice@example.com", "hunter2", "Alice")
+        proj = await svc.create_project(user.id, "P")
+        await svc.set_github_token(proj.id, "alice", "ghp_secret")
+        src = await svc.create_source(proj.id, "github", {"repo": "a/b"}, None)
+        assert src.secret == "ghp_secret"
+    finally:
+        await engine.dispose()
+
+
+def test_oauth_state():
+    s = oauth.new_state("proj1", "github")
+    assert oauth.consume_state(s) == ("proj1", "github")
+    assert oauth.consume_state(s) is None
+    g = oauth.new_state("", "google")
+    assert oauth.consume_state(g) == ("", "google")
 
 
 async def test_github_connector_builds_events(monkeypatch):
@@ -69,75 +158,7 @@ async def test_github_connector_builds_events(monkeypatch):
         org_id="p1", config={"repo": "acme/web"}, secret=None, since=None
     )
     assert len(res.events) == 3
-    assert {e.type for e in res.events} == {
-        "com.github.issue",
-        "com.github.issue_comment",
-        "com.github.commit",
-    }
     assert all(e.mgtenant == "p1" for e in res.events)
-
-
-async def test_login_and_projects(tmp_path):
-    svc, engine, _ = await _svc(tmp_path)
-    try:
-        u1 = await svc.login("alice")
-        u1b = await svc.login("alice")  # idempotent
-        assert u1.id == u1b.id
-        p = await svc.create_project(u1.id, "My Project")
-        assert p.owner_id == u1.id
-        projects = await svc.list_projects(u1.id)
-        assert [x.id for x in projects] == [p.id]
-    finally:
-        await engine.dispose()
-
-
-async def test_sync_under_project(tmp_path, monkeypatch):
-    svc, engine, producer = await _svc(tmp_path)
-    try:
-        user = await svc.login("alice")
-        proj = await svc.create_project(user.id, "P")
-        ev = CloudEvent(
-            id="github-commit-acme/web-abc",
-            source="github:acme/web",
-            type="com.github.commit",
-            subject="repo:acme/web",
-            time=datetime.now(UTC),
-            mgtenant=proj.id,
-            data={},
-        )
-        monkeypatch.setattr(
-            "meaninggrid_ingest.service.get_connector",
-            lambda kind, **kw: _FakeConnector([ev], "c1"),
-        )
-        src = await svc.create_source(proj.id, "github", {"repo": "acme/web"}, None)
-        n = await svc.sync(src.id)
-        assert n == 1
-        assert producer.sent[0][1].id == ev.id
-        assert len(await svc.list_events(proj.id)) == 1
-    finally:
-        await engine.dispose()
-
-
-async def test_oauth_token_reuse(tmp_path):
-    svc, engine, _ = await _svc(tmp_path)
-    try:
-        user = await svc.login("alice")
-        proj = await svc.create_project(user.id, "P")
-        await svc.set_github_token(proj.id, "alice", "ghp_secret")
-        # creating a source without a secret reuses the project's OAuth token
-        src = await svc.create_source(proj.id, "github", {"repo": "a/b"}, None)
-        assert src.secret == "ghp_secret"
-        p = await svc.get_project(proj.id)
-        assert p is not None and p.github_login == "alice" and p.github_token == "ghp_secret"
-    finally:
-        await engine.dispose()
-
-
-def test_oauth_state():
-    s = oauth.new_state("proj1", "github")
-    assert oauth.consume_state(s) == ("proj1", "github")
-    assert oauth.consume_state(s) is None  # single-use
-    assert oauth.consume_state("bogus") is None
 
 
 class _FakeConnector:

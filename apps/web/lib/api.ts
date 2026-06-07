@@ -1,10 +1,19 @@
+import { getToken, clearSession } from "@/lib/auth";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export interface User {
   id: string;
-  username: string;
+  email: string | null;
+  name: string | null;
+  avatar_url: string | null;
   created_at: string;
+}
+
+export interface AuthOut {
+  token: string;
+  user: User;
 }
 
 export interface Project {
@@ -54,7 +63,7 @@ export interface Build {
 export interface Health {
   ok: boolean;
   kinds: string[];
-  oauth: { github: boolean; slack: boolean };
+  oauth: { github: boolean; slack: boolean; google: boolean };
 }
 
 export interface Repo {
@@ -66,7 +75,19 @@ export interface Channel {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+  const token = getToken();
+  const headers: Record<string, string> = {
+    ...((init?.headers as Record<string, string>) ?? {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  if (res.status === 401) {
+    clearSession();
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+    throw new Error("unauthorized");
+  }
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json() as Promise<T>;
 }
@@ -81,11 +102,15 @@ export const fetcher = <T>(path: string) => req<T>(path);
 
 export const api = {
   health: () => req<Health>("/health"),
-  login: (username: string) => req<User>("/auth/login", json({ username })),
 
-  createProject: (owner_id: string, name: string) =>
-    req<Project>("/projects", json({ owner_id, name })),
-  listProjects: (owner_id: string) => req<Project[]>(`/projects?owner_id=${owner_id}`),
+  register: (email: string, password: string, name: string) =>
+    req<AuthOut>("/auth/register", json({ email, password, name })),
+  login: (email: string, password: string) => req<AuthOut>("/auth/login", json({ email, password })),
+  me: () => req<User>("/auth/me"),
+  googleStartUrl: () => `${API_BASE}/auth/google/start`,
+
+  createProject: (name: string) => req<Project>("/projects", json({ name })),
+  listProjects: () => req<Project[]>("/projects"),
   getProject: (id: string) => req<Project>(`/projects/${id}`),
   deleteProject: (id: string) => req<unknown>(`/projects/${id}`, { method: "DELETE" }),
 

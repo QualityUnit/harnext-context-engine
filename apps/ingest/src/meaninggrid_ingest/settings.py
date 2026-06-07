@@ -17,11 +17,18 @@ class IngestSettings(BaseSettings):
     # Public base URL of this API, used to build OAuth callback URLs.
     oauth_redirect_base: str = "http://localhost:8000"
 
-    # OAuth apps (register your own; leave empty to disable a provider's Connect button).
+    # Auth sessions (JWT). Set a strong JWT_SECRET in production.
+    jwt_secret: str = "dev-insecure-change-me-please-set-JWT_SECRET-in-env-0123456789"
+    jwt_expiry_hours: int = 168  # 7 days
+
+    # OAuth apps (register your own; leave empty to disable a provider).
     github_oauth_client_id: str | None = None
     github_oauth_client_secret: str | None = None
     slack_oauth_client_id: str | None = None
     slack_oauth_client_secret: str | None = None
+    # "Sign in with Google" — Google Cloud OAuth client.
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
 
     # Per-sync page sizes (keep first syncs bounded for the MVP).
     github_per_page: int = 30

@@ -13,7 +13,12 @@ from meaninggrid_shared.db import (
     utcnow,
 )
 from meaninggrid_shared.envelope import CloudEvent
-from meaninggrid_shared.session import init_db, make_engine, make_sessionmaker
+from meaninggrid_shared.session import (
+    init_db,
+    make_engine,
+    make_sessionmaker,
+    migrate_schema,
+)
 from meaninggrid_shared.topics import (
     ALL_TOPICS,
     BATCH_EVENTS_TOPIC,
@@ -49,5 +54,6 @@ __all__ = [
     "init_db",
     "make_engine",
     "make_sessionmaker",
+    "migrate_schema",
     "utcnow",
 ]

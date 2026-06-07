@@ -72,14 +72,23 @@ make web         # UI on :3100
 
 Then open the dashboard at **`http://localhost:3100`**:
 
-1. **Sign in** — pick a username (demo auth, no password).
+1. **Sign in** — register with email + password, or **Continue with Google**. Sessions
+   are JWTs; the API routes are scoped to the logged-in user.
 2. **Create a project** — this is a tenant; its id is the `mgtenant` used throughout.
 3. **Connect a source** — *Connect GitHub* / *Connect Slack* (OAuth), or use
    *advanced: add manually* to add a public repo with no setup. Pick a repo/channel.
 4. **Sync now** — events flow ingest → classify → build, and the *Recent events*
    and *Context builds* panels light up.
 
-### OAuth setup (for the Connect buttons)
+### Auth + Google sign-in setup
+
+Set `JWT_SECRET` in `.env` to a long random string. For **Sign in with Google**,
+register a Google Cloud OAuth client (Web application) with authorized redirect URI
+`http://localhost:8000/auth/google/callback`, then set `GOOGLE_OAUTH_CLIENT_ID` /
+`GOOGLE_OAUTH_CLIENT_SECRET`. Without them, the Google button is disabled and you use
+email/password.
+
+### Integration OAuth setup (for the Connect buttons)
 
 Register your own apps and put the credentials in `.env`:
 

@@ -9,10 +9,7 @@ import { Badge, Button, Card, Field, inputCls } from "@/components/ui";
 
 export default function ProjectsPage() {
   const user = useUser();
-  const { data: projects, mutate } = useSWR<Project[]>(
-    user ? `/projects?owner_id=${user.id}` : null,
-    fetcher,
-  );
+  const { data: projects, mutate } = useSWR<Project[]>(user ? "/projects" : null, fetcher);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -20,10 +17,10 @@ export default function ProjectsPage() {
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
-    if (!user || !name.trim()) return;
+    if (!name.trim()) return;
     setBusy(true);
     try {
-      await api.createProject(user.id, name.trim());
+      await api.createProject(name.trim());
       setName("");
       mutate();
     } finally {

@@ -21,6 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meaninggrid_ingest.connectors import get_connector
+from meaninggrid_ingest.security import hash_password, verify_password
 from meaninggrid_ingest.settings import IngestSettings
 
 
@@ -39,17 +40,73 @@ class SourceService:
         self.producer = producer
         self.s = settings
 
-    # -- auth (demo: username, no password) --------------------------------
-    async def login(self, username: str) -> User:
+    # -- auth ---------------------------------------------------------------
+    async def get_user(self, user_id: str) -> User | None:
+        async with self.sm() as s:
+            return await s.get(User, user_id)
+
+    async def _user_by_email(self, email: str) -> User | None:
+        async with self.sm() as s:
+            return (await s.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+    async def register(self, email: str, password: str, name: str | None) -> User:
+        if await self._user_by_email(email) is not None:
+            raise ValueError("email already registered")
+        user = User(
+            id=uuid.uuid4().hex,
+            username=email,  # legacy column; keep populated + unique
+            email=email,
+            name=name or email.split("@")[0],
+            password_hash=hash_password(password),
+        )
+        async with self.sm() as s:
+            s.add(user)
+            await s.commit()
+            await s.refresh(user)
+        return user
+
+    async def authenticate(self, email: str, password: str) -> User | None:
+        user = await self._user_by_email(email)
+        if (
+            user is None
+            or not user.password_hash
+            or not verify_password(password, user.password_hash)
+        ):
+            return None
+        return user
+
+    async def upsert_google_user(
+        self, sub: str, email: str | None, name: str | None, picture: str | None
+    ) -> User:
+        """Find by google_sub, else link an existing email account, else create."""
         async with self.sm() as s:
             user = (
-                await s.execute(select(User).where(User.username == username))
+                await s.execute(select(User).where(User.google_sub == sub))
             ).scalar_one_or_none()
+            if user is None and email:
+                user = (
+                    await s.execute(select(User).where(User.email == email))
+                ).scalar_one_or_none()
             if user is None:
-                user = User(id=uuid.uuid4().hex, username=username)
+                user = User(
+                    id=uuid.uuid4().hex,
+                    username=email or sub,
+                    email=email,
+                    name=name or (email.split("@")[0] if email else "user"),
+                    google_sub=sub,
+                    avatar_url=picture,
+                )
                 s.add(user)
-                await s.commit()
-                await s.refresh(user)
+            else:
+                user.google_sub = sub
+                if picture:
+                    user.avatar_url = picture
+                if name and not user.name:
+                    user.name = name
+                if email and not user.email:
+                    user.email = email
+            await s.commit()
+            await s.refresh(user)
             return user
 
     # -- projects ----------------------------------------------------------

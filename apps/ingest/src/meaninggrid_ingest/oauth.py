@@ -43,6 +43,51 @@ def redirect_uri(base: str, provider: str) -> str:
     return f"{base}/oauth/{provider}/callback"
 
 
+def google_authorize_url(client_id: str, redirect: str, state: str) -> str:
+    q = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "access_type": "online",
+            "prompt": "select_account",
+        }
+    )
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{q}"
+
+
+async def google_exchange(client_id: str, client_secret: str, code: str, redirect: str) -> dict:
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": redirect,
+                "grant_type": "authorization_code",
+            },
+        )
+        r.raise_for_status()
+        access = r.json().get("access_token")
+        if not access:
+            raise OAuthError("google token exchange returned no access_token")
+        u = await c.get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        u.raise_for_status()
+        info = u.json()
+    return {
+        "sub": info.get("sub"),
+        "email": info.get("email"),
+        "name": info.get("name"),
+        "picture": info.get("picture"),
+    }
+
+
 def github_authorize_url(client_id: str, redirect: str, state: str) -> str:
     q = urlencode(
         {"client_id": client_id, "redirect_uri": redirect, "scope": "repo read:org", "state": state}

@@ -55,12 +55,26 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
-    """A dashboard account. Demo auth: a username, no password."""
+    """A dashboard account. Email/password or Google sign-in.
+
+    ``username`` is a legacy column (kept so existing rows survive); new users
+    set it to their email. ``password_hash`` is null for Google-only accounts;
+    ``google_sub`` is Google's stable user id (null for password-only accounts).
+    """
 
     __tablename__ = "users"
+    __table_args__ = (
+        Index("ix_users_email", "email", unique=True),
+        Index("ix_users_google_sub", "google_sub", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
-    username: Mapped[str] = mapped_column(String(255), unique=True)
+    username: Mapped[str | None] = mapped_column(String(255), nullable=True)  # legacy
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

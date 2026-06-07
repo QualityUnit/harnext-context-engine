@@ -8,18 +8,31 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class RegisterIn(BaseModel):
+    email: str
+    password: str
+    name: str | None = None
+
+
 class LoginIn(BaseModel):
-    username: str
+    email: str
+    password: str
 
 
 class UserOut(BaseModel):
     id: str
-    username: str
+    email: str | None
+    name: str | None
+    avatar_url: str | None
     created_at: datetime
 
 
+class AuthOut(BaseModel):
+    token: str
+    user: UserOut
+
+
 class ProjectCreate(BaseModel):
-    owner_id: str
     name: str
 
 
