@@ -4,20 +4,23 @@ pulls a source's activity into the raw Kafka topic."""
 from __future__ import annotations
 
 import json
+import os
 import uuid
+from datetime import timedelta
 from typing import Protocol
 
 from meaninggrid_shared import (
     RAW_EVENTS_TOPIC,
     BuildLedger,
     CloudEvent,
+    FsSnapshot,
     IngestedEvent,
     Project,
     Source,
     User,
     utcnow,
 )
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meaninggrid_ingest.connectors import get_connector
@@ -27,6 +30,10 @@ from meaninggrid_ingest.settings import IngestSettings
 
 class ProducerLike(Protocol):
     async def send_event(self, topic: str, event: CloudEvent) -> None: ...
+
+
+def _file_size(path: str | None) -> int:
+    return os.path.getsize(path) if path and os.path.isfile(path) else 0
 
 
 class SourceService:
@@ -150,6 +157,15 @@ class SourceService:
         async with self.sm() as s:
             return await s.get(Project, project_id)
 
+    async def rename_project(self, project_id: str, name: str) -> Project | None:
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj is not None:
+                proj.name = name
+                await s.commit()
+                await s.refresh(proj)
+            return proj
+
     async def delete_project(self, project_id: str) -> bool:
         async with self.sm() as s:
             proj = await s.get(Project, project_id)
@@ -158,6 +174,85 @@ class SourceService:
             await s.delete(proj)
             await s.commit()
             return True
+
+    async def disconnect_provider(self, project_id: str, kind: str) -> None:
+        """Revoke a provider's token and remove all of its sources."""
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj is None:
+                return
+            if kind == "github":
+                proj.github_token = None
+                proj.github_login = None
+            elif kind == "slack":
+                proj.slack_token = None
+                proj.slack_team_id = None
+                proj.slack_team_name = None
+            srcs = (
+                await s.execute(
+                    select(Source).where(Source.org_id == project_id, Source.kind == kind)
+                )
+            ).scalars()
+            for src in srcs:
+                await s.delete(src)
+            await s.commit()
+
+    async def source_event_counts(self, project_id: str) -> dict[str, int]:
+        async with self.sm() as s:
+            rows = await s.execute(
+                select(IngestedEvent.source_id, func.count())
+                .where(IngestedEvent.org_id == project_id)
+                .group_by(IngestedEvent.source_id)
+            )
+            return {sid: n for sid, n in rows.fetchall() if sid}
+
+    async def project_analytics(self, project_id: str, days: int = 14) -> dict:
+        async with self.sm() as s:
+            times = list(
+                (
+                    await s.execute(
+                        select(IngestedEvent.ingest_time).where(IngestedEvent.org_id == project_id)
+                    )
+                ).scalars()
+            )
+            total_builds = await s.scalar(
+                select(func.count())
+                .select_from(BuildLedger)
+                .where(BuildLedger.org_id == project_id, BuildLedger.status == "success")
+            )
+            sources_live = await s.scalar(
+                select(func.count())
+                .select_from(Source)
+                .where(Source.org_id == project_id, Source.status == "active")
+            )
+            snap_ref = (
+                (
+                    await s.execute(
+                        select(FsSnapshot.ref)
+                        .where(FsSnapshot.org_id == project_id)
+                        .order_by(FsSnapshot.created_at.desc())
+                    )
+                )
+                .scalars()
+                .first()
+            )
+
+        context_bytes = _file_size(snap_ref)
+        today = utcnow().date()
+        counts = {today - timedelta(days=i): 0 for i in range(days)}
+        for t in times:
+            d = t.date()
+            if d in counts:
+                counts[d] += 1
+        series = [counts[today - timedelta(days=i)] for i in range(days - 1, -1, -1)]
+        return {
+            "events_per_day": series,
+            "total_events": len(times),
+            "total_builds": int(total_builds or 0),
+            "context_bytes": int(context_bytes),
+            "sources_live": int(sources_live or 0),
+            "days": days,
+        }
 
     async def set_github_token(self, project_id: str, login: str | None, token: str) -> None:
         async with self.sm() as s:

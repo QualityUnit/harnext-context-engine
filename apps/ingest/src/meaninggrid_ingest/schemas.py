@@ -36,6 +36,19 @@ class ProjectCreate(BaseModel):
     name: str
 
 
+class ProjectRename(BaseModel):
+    name: str
+
+
+class AnalyticsOut(BaseModel):
+    events_per_day: list[int]
+    total_events: int
+    total_builds: int
+    context_bytes: int
+    sources_live: int
+    days: int
+
+
 class ProjectOut(BaseModel):
     id: str
     name: str
@@ -65,6 +78,7 @@ class SourceOut(BaseModel):
     last_error: str | None
     created_at: datetime
     has_secret: bool
+    event_count: int = 0
 
 
 class SyncOut(BaseModel):

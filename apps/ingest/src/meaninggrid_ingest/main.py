@@ -25,6 +25,7 @@ from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors import SUPPORTED_KINDS
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.schemas import (
+    AnalyticsOut,
     AuthOut,
     BuildOut,
     ChannelOut,
@@ -32,6 +33,7 @@ from meaninggrid_ingest.schemas import (
     LoginIn,
     ProjectCreate,
     ProjectOut,
+    ProjectRename,
     RegisterIn,
     RepoOut,
     SourceCreate,
@@ -119,7 +121,7 @@ def _project_out(p: Project) -> ProjectOut:
     )
 
 
-def _source_out(s: Source) -> SourceOut:
+def _source_out(s: Source, event_count: int = 0) -> SourceOut:
     return SourceOut(
         id=s.id,
         org_id=s.org_id,
@@ -131,6 +133,7 @@ def _source_out(s: Source) -> SourceOut:
         last_error=s.last_error,
         created_at=s.created_at,
         has_secret=bool(s.secret),
+        event_count=event_count,
     )
 
 
@@ -273,6 +276,31 @@ async def get_project(project_id: str, svc: SvcDep, user: UserDep) -> ProjectOut
     return _project_out(await _owned_project(svc, user, project_id))
 
 
+@app.patch("/projects/{project_id}", response_model=ProjectOut)
+async def rename_project(
+    project_id: str, body: ProjectRename, svc: SvcDep, user: UserDep
+) -> ProjectOut:
+    await _owned_project(svc, user, project_id)
+    proj = await svc.rename_project(project_id, body.name)
+    assert proj is not None
+    return _project_out(proj)
+
+
+@app.get("/projects/{project_id}/analytics", response_model=AnalyticsOut)
+async def project_analytics(project_id: str, svc: SvcDep, user: UserDep) -> dict:
+    await _owned_project(svc, user, project_id)
+    return await svc.project_analytics(project_id)
+
+
+@app.delete("/projects/{project_id}/integrations/{provider}")
+async def disconnect_provider(project_id: str, provider: str, svc: SvcDep, user: UserDep) -> dict:
+    if provider not in ("github", "slack"):
+        raise HTTPException(400, "unknown provider")
+    await _owned_project(svc, user, project_id)
+    await svc.disconnect_provider(project_id, provider)
+    return {"disconnected": provider}
+
+
 @app.delete("/projects/{project_id}")
 async def delete_project(project_id: str, svc: SvcDep, user: UserDep) -> dict:
     await _owned_project(svc, user, project_id)
@@ -375,7 +403,8 @@ async def list_sources(
     svc: SvcDep, user: UserDep, project_id: Annotated[str, Query()]
 ) -> list[SourceOut]:
     await _owned_project(svc, user, project_id)
-    return [_source_out(s) for s in await svc.list_sources(project_id)]
+    counts = await svc.source_event_counts(project_id)
+    return [_source_out(s, counts.get(s.id, 0)) for s in await svc.list_sources(project_id)]
 
 
 @app.get("/sources/{source_id}", response_model=SourceOut)
