@@ -65,6 +65,18 @@ services:
         rpk -X brokers=redpanda:9092 topic create cms.events.batch.v1 -p 30 -r 1 || true
         rpk -X brokers=redpanda:9092 topic list
 
+  redis:
+    image: redis:7-alpine
+    container_name: meaninggrid-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [internal]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
   # ---- schema migration (runs once, before any app service) -----------------
   # Brings the shared SQLite to the latest Alembic revision. Gating every app
   # service on this (service_completed_successfully) means the four services
@@ -129,6 +141,37 @@ services:
     ports:
       - "127.0.0.1:18765:8765"   # loopback debug only
     networks: [internal, reverse-proxy]
+
+  # ---- polling scheduler (Celery + Redis) -----------------------------------
+  # beat fires dispatch_due_polls every minute; the worker runs the per-source
+  # polls (connector.fetch → Kafka), so it needs Redpanda + the DB volume.
+  poller-worker:
+    <<: *py
+    container_name: meaninggrid-poller-worker
+    command: ["celery", "-A", "meaninggrid_ingest.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - mg_data:/app/data
+
+  poller-beat:
+    <<: *py
+    container_name: meaninggrid-poller-beat
+    command:
+      - celery
+      - -A
+      - meaninggrid_ingest.celery_app
+      - beat
+      - --loglevel=info
+      - --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      redis:
+        condition: service_healthy
 
   web:
     image: meaninggrid-web:latest

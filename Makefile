@@ -1,8 +1,8 @@
-.PHONY: help up down logs ps install topics ingest classifier builder mcp web fmt lint typecheck test clean
+.PHONY: help up down logs ps install topics ingest classifier builder mcp web worker beat fmt lint typecheck test clean
 
 help:
 	@echo "Infra:"
-	@echo "  make up         — start Redpanda (Kafka)"
+	@echo "  make up         — start Redpanda (Kafka) + Redis (Celery broker)"
 	@echo "  make down       — stop infra"
 	@echo "  make logs       — tail infra logs"
 	@echo "  make ps         — status of infra containers"
@@ -14,6 +14,8 @@ help:
 	@echo "  make builder    — AgentFS builder consumer"
 	@echo "  make mcp         — MCP context server on :8765"
 	@echo "  make web        — Next.js source-connection UI on :3100"
+	@echo "  make worker     — Celery worker (runs source polls)"
+	@echo "  make beat       — Celery beat (schedules polls every minute)"
 	@echo ""
 	@echo "Quality:"
 	@echo "  make install    — uv sync + pnpm install"
@@ -56,6 +58,12 @@ mcp:
 
 web:
 	pnpm --filter @meaninggrid/web dev --port 3100
+
+worker:
+	uv run --package meaninggrid-ingest celery -A meaninggrid_ingest.celery_app worker --loglevel=info --concurrency=2
+
+beat:
+	uv run --package meaninggrid-ingest celery -A meaninggrid_ingest.celery_app beat --loglevel=info
 
 fmt:
 	uv run ruff format .

@@ -68,6 +68,8 @@ make classifier  # fast/batch router
 make builder     # AgentFS builder
 make mcp         # MCP context server on :8765
 make web         # UI on :3100
+make worker      # Celery worker — runs source polls (needs Redis from `make up`)
+make beat        # Celery beat — schedules polls (ticks every minute; sources poll hourly)
 ```
 
 Then open the dashboard at **`http://localhost:3100`**:
