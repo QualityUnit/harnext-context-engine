@@ -156,7 +156,7 @@ export function MCPView({
           <div className="crumb">
             {project.name}
             <span className="crumb-sep">/</span>
-            <span>mcp activity</span>
+            <span>dashboard</span>
           </div>
           <h1 className="view-title">MCP server requests</h1>
           <p className="view-desc">

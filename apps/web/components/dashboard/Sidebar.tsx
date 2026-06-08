@@ -113,9 +113,9 @@ export function Sidebar({
   onLogout: () => void;
 }) {
   const nav = [
+    { id: "mcp" as const, label: "Dashboard", icon: Icon.activity },
     { id: "sources" as const, label: "Sources", icon: Icon.sources },
     { id: "connect" as const, label: "Connect", icon: Icon.connect },
-    { id: "mcp" as const, label: "MCP activity", icon: Icon.activity },
   ];
   const label = user?.name || user?.email || "self-hosted";
   const initials = (user?.name || user?.email || "MG")

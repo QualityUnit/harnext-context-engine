@@ -30,7 +30,7 @@ export function Dashboard({ id }: { id: string }) {
   const user = useUser();
   const router = useRouter();
   const search = useSearchParams();
-  const [view, setView] = useState<View>("sources");
+  const [view, setView] = useState<View>("mcp");
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
   const projects = useSWR<Project[]>(user ? "/projects" : null, fetcher);
@@ -84,7 +84,7 @@ export function Dashboard({ id }: { id: string }) {
   // ---- handlers ----
   const onSwitch = (pid: string) => {
     if (pid !== id) {
-      setView("sources");
+      setView("mcp");
       router.push(`/projects/${pid}`);
     }
   };
