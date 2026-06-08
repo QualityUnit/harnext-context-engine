@@ -1,0 +1,60 @@
+# One image for all four Python services (ingest / classifier / builder / mcp).
+# They share the uv workspace, so the image carries the whole workspace venv and
+# each compose service just overrides the command.
+#
+# Build from the repo root:
+#   docker build -f infra/docker/Dockerfile.python -t meaninggrid-py .
+
+# ---- build stage: resolve + install the workspace into /app/.venv ----------
+FROM python:3.12-slim-bookworm AS build
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    PIP_ROOT_USER_ACTION=ignore
+
+RUN pip install --no-cache-dir "uv>=0.6"
+
+WORKDIR /app
+
+# Lock + workspace manifests first (cache-friendly), then sources.
+COPY pyproject.toml uv.lock ./
+COPY packages ./packages
+COPY apps/ingest ./apps/ingest
+COPY apps/classifier ./apps/classifier
+COPY apps/builder ./apps/builder
+COPY apps/mcp ./apps/mcp
+
+# Install every workspace member's runtime deps (no dev tools).
+RUN uv sync --frozen --all-packages --no-dev
+
+# ---- runtime stage ---------------------------------------------------------
+FROM python:3.12-slim-bookworm AS runtime
+
+# git  -> the AgentFS "git" backend (one git repo per org; snapshots = commits)
+# node -> the Claude Code CLI, which the Agent SDK shells out to (builder + mcp)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code \
+    && apt-get purge -y curl gnupg \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /app /app
+COPY infra/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    HOME=/root \
+    GIT_AUTHOR_NAME=meaninggrid \
+    GIT_AUTHOR_EMAIL=builder@meaninggrid.local \
+    GIT_COMMITTER_NAME=meaninggrid \
+    GIT_COMMITTER_EMAIL=builder@meaninggrid.local
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Default command is the ingest API; other services override `command:` in compose.
+CMD ["uvicorn", "meaninggrid_ingest.main:app", "--host", "0.0.0.0", "--port", "8000"]

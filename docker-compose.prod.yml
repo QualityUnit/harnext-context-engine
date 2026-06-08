@@ -1,0 +1,137 @@
+# Production stack for a single-node VPS deploy.
+#
+#   cp .env.production.example .env      # then edit secrets/URLs
+#   mkdir -p secrets && cp <your> secrets/claude-credentials.json   # ~/.claude/.credentials.json
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# web + ingest + mcp also join the external `reverse-proxy` network so the shared
+# nginx can reach them by container name (meaninggrid-web:3100, -ingest:8000,
+# -mcp:8765). Loopback host ports are published for debugging only.
+
+x-py: &py
+  image: meaninggrid-py:latest
+  build:
+    context: .
+    dockerfile: infra/docker/Dockerfile.python
+  env_file: [.env]
+  restart: unless-stopped
+  depends_on:
+    redpanda:
+      condition: service_healthy
+  networks: [internal]
+
+services:
+  # ---- infra ----------------------------------------------------------------
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: meaninggrid-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    volumes:
+      - mg_redpanda:/var/lib/redpanda/data
+    networks: [internal]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  topics-init:
+    image: redpandadata/redpanda:latest
+    container_name: meaninggrid-topics-init
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks: [internal]
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        rpk -X brokers=redpanda:9092 topic create cms.events.raw.v1   -p 50 -r 1 || true
+        rpk -X brokers=redpanda:9092 topic create cms.events.fast.v1  -p 50 -r 1 || true
+        rpk -X brokers=redpanda:9092 topic create cms.events.batch.v1 -p 30 -r 1 || true
+        rpk -X brokers=redpanda:9092 topic list
+
+  # ---- app services (one image, four commands) ------------------------------
+  ingest:
+    <<: *py
+    container_name: meaninggrid-ingest
+    command: ["uvicorn", "meaninggrid_ingest.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - mg_data:/app/data
+    ports:
+      - "127.0.0.1:18000:8000"   # loopback debug only
+    networks: [internal, reverse-proxy]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  classifier:
+    <<: *py
+    container_name: meaninggrid-classifier
+    command: ["python", "-m", "meaninggrid_classifier.main"]
+    volumes:
+      - mg_data:/app/data
+
+  builder:
+    <<: *py
+    container_name: meaninggrid-builder
+    command: ["python", "-m", "meaninggrid_builder.main"]
+    volumes:
+      - mg_data:/app/data
+      - mg_claude_builder:/root/.claude
+      - ./secrets/claude-credentials.json:/run/secrets/claude-credentials.json:ro
+
+  mcp:
+    <<: *py
+    container_name: meaninggrid-mcp
+    command: ["python", "-m", "meaninggrid_mcp.main"]
+    volumes:
+      - mg_data:/app/data
+      - mg_claude_mcp:/root/.claude
+      - ./secrets/claude-credentials.json:/run/secrets/claude-credentials.json:ro
+    ports:
+      - "127.0.0.1:18765:8765"   # loopback debug only
+    networks: [internal, reverse-proxy]
+
+  web:
+    image: meaninggrid-web:latest
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+    container_name: meaninggrid-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:13100:3100"   # loopback debug only
+    networks: [internal, reverse-proxy]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3100/login',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mg_data:
+  mg_redpanda:
+  mg_claude_builder:
+  mg_claude_mcp:
+
+networks:
+  internal:
+  reverse-proxy:
+    external: true
