@@ -27,6 +27,15 @@ def verify_slack_signature(secret: str, timestamp: str, signature: str, body: st
     return hmac.compare_digest(expected, signature)
 
 
+def verify_github_signature(secret: str, signature: str, body: bytes) -> bool:
+    """Validate a GitHub webhook ``X-Hub-Signature-256`` (HMAC-SHA256 over the
+    raw body)."""
+    if not (secret and signature):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 def hash_password(password: str) -> str:
     # bcrypt has a 72-byte input limit
     return bcrypt.hashpw(password.encode()[:72], bcrypt.gensalt()).decode()

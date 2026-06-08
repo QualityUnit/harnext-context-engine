@@ -33,6 +33,10 @@ class IngestSettings(BaseSettings):
     # enable POST /webhooks/slack (real-time messages); leave empty to disable.
     slack_signing_secret: str | None = None
 
+    # GitHub webhook secret — verifies inbound repo webhook POSTs. Set it to
+    # enable POST /webhooks/github (real-time commits/issues/PRs); empty disables.
+    github_webhook_secret: str | None = None
+
     # OAuth apps (register your own; leave empty to disable a provider).
     github_oauth_client_id: str | None = None
     github_oauth_client_secret: str | None = None

@@ -249,6 +249,109 @@ async def test_slack_webhook_endpoint(tmp_path):
         await engine.dispose()
 
 
+def test_github_signature_verify():
+    import hashlib
+    import hmac
+
+    from meaninggrid_ingest.security import verify_github_signature
+
+    secret, body = "ghsecret", b'{"zen":"hi"}'
+    sig = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    assert verify_github_signature(secret, sig, body)
+    assert not verify_github_signature(secret, "sha256=bad", body)
+    assert not verify_github_signature("", sig, body)
+
+
+async def test_github_event_routing(tmp_path):
+    svc, engine, producer = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        await svc.create_source(p.id, "github", {"repo": "acme/web"}, None)
+
+        push = {
+            "ref": "refs/heads/main",
+            "repository": {"full_name": "acme/web", "default_branch": "main"},
+            "commits": [
+                {"id": "abc", "message": "fix", "timestamp": "2026-06-08T00:00:00Z",
+                 "url": "u", "author": {"name": "ada"}}
+            ],
+        }
+        assert await svc.ingest_github_event("push", push) == 1
+        assert producer.sent[-1][1].id == "github-commit-acme/web-abc"
+        assert producer.sent[-1][1].type == "com.github.commit"
+
+        # non-default branch -> ignored
+        assert await svc.ingest_github_event("push", {**push, "ref": "refs/heads/feat"}) == 0
+        # different repo -> no matching source
+        assert await svc.ingest_github_event("push", {**push, "repository": {"full_name": "x/y", "default_branch": "main"}}) == 0
+
+        pr = {
+            "action": "opened",
+            "repository": {"full_name": "acme/web"},
+            "pull_request": {"number": 9, "title": "PR", "state": "open", "body": "y",
+                             "labels": [], "user": {"login": "bob"}, "html_url": "u",
+                             "updated_at": "2026-06-08T02:00:00Z"},
+        }
+        assert await svc.ingest_github_event("pull_request", pr) == 1
+        assert producer.sent[-1][1].type == "com.github.pull_request"
+        assert producer.sent[-1][1].data["is_pull_request"] is True
+    finally:
+        await engine.dispose()
+
+
+async def test_github_webhook_endpoint(tmp_path):
+    import hashlib
+    import hmac
+    import json as _json
+
+    import httpx
+    from meaninggrid_ingest.main import app
+    from meaninggrid_ingest.main import service as service_dep
+    from meaninggrid_ingest.main import settings as settings_dep
+
+    svc, engine, producer = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        await svc.create_source(p.id, "github", {"repo": "acme/web"}, None)
+
+        cfg = IngestSettings(github_webhook_secret="ghsecret")
+        app.dependency_overrides[service_dep] = lambda: svc
+        app.dependency_overrides[settings_dep] = lambda: cfg
+
+        def sign(raw: bytes) -> str:
+            return "sha256=" + hmac.new(b"ghsecret", raw, hashlib.sha256).hexdigest()
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            # ping handshake
+            raw = _json.dumps({"zen": "Keep it simple"}).encode()
+            r = await c.post("/webhooks/github", content=raw,
+                             headers={"X-GitHub-Event": "ping", "X-Hub-Signature-256": sign(raw)})
+            assert r.status_code == 200
+
+            # signed push -> a commit CloudEvent is produced
+            raw = _json.dumps({
+                "ref": "refs/heads/main",
+                "repository": {"full_name": "acme/web", "default_branch": "main"},
+                "commits": [{"id": "deadbeef", "message": "x", "timestamp": "2026-06-08T00:00:00Z",
+                             "url": "u", "author": {"name": "ada"}}],
+            }).encode()
+            r = await c.post("/webhooks/github", content=raw,
+                             headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(raw)})
+            assert r.status_code == 200
+            assert any(e.id == "github-commit-acme/web-deadbeef" for _, e in producer.sent)
+
+            # bad signature -> 401
+            r = await c.post("/webhooks/github", content=raw,
+                             headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=bad"})
+            assert r.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
 def test_oauth_state():
     s = oauth.new_state("proj1", "github")
     assert oauth.consume_state(s) == ("proj1", "github")

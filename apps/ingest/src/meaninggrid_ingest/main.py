@@ -43,7 +43,12 @@ from meaninggrid_ingest.schemas import (
     SyncOut,
     UserOut,
 )
-from meaninggrid_ingest.security import create_token, decode_token, verify_slack_signature
+from meaninggrid_ingest.security import (
+    create_token,
+    decode_token,
+    verify_github_signature,
+    verify_slack_signature,
+)
 from meaninggrid_ingest.service import SourceService
 from meaninggrid_ingest.settings import IngestSettings
 
@@ -467,6 +472,25 @@ async def slack_webhook(request: Request, svc: SvcDep, cfg: CfgDep) -> dict:
         # only real, top-level user messages — skip edits/deletes/joins and bots
         if ev.get("type") == "message" and not ev.get("subtype") and not ev.get("bot_id"):
             await svc.ingest_slack_event(payload.get("team_id"), ev)
+    return {"ok": True}
+
+
+@app.post("/webhooks/github")
+async def github_webhook(request: Request, svc: SvcDep, cfg: CfgDep) -> dict:
+    """GitHub repo webhook receiver (real-time). Verifies X-Hub-Signature-256,
+    then pushes push/issues/PR/comment events into the same pipeline the poller
+    feeds. Signed but otherwise public — no bearer auth."""
+    if not cfg.github_webhook_secret:
+        raise HTTPException(503, "github webhook not configured")
+    raw = await request.body()
+    if not verify_github_signature(
+        cfg.github_webhook_secret, request.headers.get("X-Hub-Signature-256", ""), raw
+    ):
+        raise HTTPException(401, "bad github signature")
+    event = request.headers.get("X-GitHub-Event", "")
+    if event == "ping":  # GitHub's create-webhook handshake
+        return {"ok": True}
+    await svc.ingest_github_event(event, json.loads(raw))
     return {"ok": True}
 
 

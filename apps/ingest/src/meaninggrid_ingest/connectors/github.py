@@ -45,6 +45,79 @@ def _clip(s: str | None) -> str:
     return s if len(s) <= _BODY_CLIP else s[:_BODY_CLIP] + "…"
 
 
+def webhook_to_events(event: str, repo: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Map a GitHub webhook delivery to the SAME event records the poller emits,
+    so a change arriving via both webhook and a later sync dedupes on ``id``.
+
+    Returns ``[{id, type, time, data}]`` (org/source/subject are added by the
+    caller). Handles push (default branch only), issues, pull_request and
+    issue_comment; other events return ``[]``.
+    """
+    out: list[dict[str, Any]] = []
+    if event == "push":
+        default = "refs/heads/" + (payload.get("repository") or {}).get("default_branch", "")
+        if payload.get("ref") != default:
+            return out  # ignore non-default-branch pushes (poller indexes the default branch)
+        for cm in payload.get("commits", []):
+            sha = cm.get("id")
+            if not sha:
+                continue
+            out.append(
+                {
+                    "id": f"github-commit-{repo}-{sha}",
+                    "type": "com.github.commit",
+                    "time": _parse_ts(cm.get("timestamp")),
+                    "data": {
+                        "sha": sha,
+                        "message": _clip(cm.get("message")),
+                        "author": (cm.get("author") or {}).get("name"),
+                        "url": cm.get("url"),
+                    },
+                }
+            )
+    elif event in ("issues", "pull_request"):
+        is_pr = event == "pull_request"
+        obj = payload.get("pull_request") if is_pr else payload.get("issue")
+        if obj:
+            ts = obj.get("updated_at")
+            out.append(
+                {
+                    "id": f"github-issue-{repo}-{obj.get('number')}-{ts}",
+                    "type": "com.github.pull_request" if is_pr else "com.github.issue",
+                    "time": _parse_ts(ts),
+                    "data": {
+                        "number": obj.get("number"),
+                        "title": obj.get("title"),
+                        "state": obj.get("state"),
+                        "body": _clip(obj.get("body")),
+                        "labels": [lbl.get("name") for lbl in obj.get("labels", [])],
+                        "author": (obj.get("user") or {}).get("login"),
+                        "url": obj.get("html_url"),
+                        "is_pull_request": is_pr,
+                    },
+                }
+            )
+    elif event == "issue_comment":
+        c = payload.get("comment")
+        if c and payload.get("action") != "deleted":
+            ts = c.get("updated_at")
+            out.append(
+                {
+                    "id": f"github-comment-{repo}-{c.get('id')}-{ts}",
+                    "type": "com.github.issue_comment",
+                    "time": _parse_ts(ts),
+                    "data": {
+                        "comment_id": c.get("id"),
+                        "body": _clip(c.get("body")),
+                        "author": (c.get("user") or {}).get("login"),
+                        "url": c.get("html_url"),
+                        "issue_url": (payload.get("issue") or {}).get("url"),
+                    },
+                }
+            )
+    return out
+
+
 class GitHubConnector:
     kind = "github"
 

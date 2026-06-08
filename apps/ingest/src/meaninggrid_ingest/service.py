@@ -448,6 +448,52 @@ class SourceService:
             await self._mark_synced(src.id, ts)
         return len(matches)
 
+    async def ingest_github_event(self, event: str, payload: dict) -> int:
+        """Push a GitHub webhook delivery into the same pipeline as a poll. Fans
+        out to every project that registered this repo as a source. Returns the
+        number of (event × source) records produced.
+
+        Event ids match the poller's, so a change seen via both webhook and a
+        later sync is deduped."""
+        from meaninggrid_ingest.connectors.github import webhook_to_events
+
+        repo = (payload.get("repository") or {}).get("full_name")
+        if not repo:
+            return 0
+        items = webhook_to_events(event, repo, payload)
+        if not items:
+            return 0
+
+        async with self.sm() as s:
+            srcs = list(
+                (await s.execute(select(Source).where(Source.kind == "github"))).scalars()
+            )
+        matches = [src for src in srcs if json.loads(src.config_json).get("repo") == repo]
+        if not matches:
+            return 0
+
+        count = 0
+        for src in matches:
+            latest = src.cursor
+            for it in items:
+                cev = CloudEvent(
+                    id=it["id"],
+                    source=f"github:{repo}",
+                    type=it["type"],
+                    subject=f"repo:{repo}",
+                    time=it["time"],
+                    mgtenant=src.org_id,
+                    data=it["data"],
+                )
+                await self.producer.send_event(RAW_EVENTS_TOPIC, cev)
+                await self._record_ingested(src, cev)
+                iso = it["time"].isoformat()
+                if latest is None or iso > latest:
+                    latest = iso
+                count += 1
+            await self._mark_synced(src.id, latest)
+        return count
+
     async def list_events(self, project_id: str, limit: int = 50) -> list[IngestedEvent]:
         async with self.sm() as s:
             q = (
