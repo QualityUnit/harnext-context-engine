@@ -94,6 +94,41 @@ async def test_sync_under_project(tmp_path, monkeypatch):
         await engine.dispose()
 
 
+async def test_delete_project_cascades(tmp_path, monkeypatch):
+    """A project with a source + ingested events must delete cleanly. The
+    sources->projects FK (under PRAGMA foreign_keys=ON) means the project row
+    can only go once its children are removed first."""
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        user = await svc.register("alice@example.com", "hunter2", "Alice")
+        proj = await svc.create_project(user.id, "P")
+        ev = CloudEvent(
+            id="github-commit-acme/web-abc",
+            source="github:acme/web",
+            type="com.github.commit",
+            subject="repo:acme/web",
+            time=datetime.now(UTC),
+            mgtenant=proj.id,
+            data={},
+        )
+        monkeypatch.setattr(
+            "meaninggrid_ingest.service.get_connector",
+            lambda kind, **kw: _FakeConnector([ev], "c1"),
+        )
+        src = await svc.create_source(proj.id, "github", {"repo": "acme/web"}, None)
+        await svc.sync(src.id)
+        assert len(await svc.list_events(proj.id)) == 1
+
+        assert await svc.delete_project(proj.id) is True
+        assert await svc.get_project(proj.id) is None
+        assert await svc.list_sources(proj.id) == []
+        assert await svc.list_events(proj.id) == []
+        # deleting a project that no longer exists is a no-op, not an error
+        assert await svc.delete_project(proj.id) is False
+    finally:
+        await engine.dispose()
+
+
 async def test_oauth_token_reuse(tmp_path):
     svc, engine, _ = await _svc(tmp_path)
     try:

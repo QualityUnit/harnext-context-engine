@@ -13,6 +13,8 @@ from meaninggrid_shared import (
     RAW_EVENTS_TOPIC,
     BuildLedger,
     CloudEvent,
+    ConversationLog,
+    EntityBaseline,
     FsSnapshot,
     IngestedEvent,
     Project,
@@ -20,7 +22,7 @@ from meaninggrid_shared import (
     User,
     utcnow,
 )
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meaninggrid_ingest.connectors import get_connector
@@ -167,10 +169,25 @@ class SourceService:
             return proj
 
     async def delete_project(self, project_id: str) -> bool:
+        """Delete a project and every tenant-scoped row it owns.
+
+        All child tables are keyed by ``org_id == project_id``; ``sources`` also
+        has a FK to ``projects.id`` (enforced under ``PRAGMA foreign_keys=ON``),
+        so the project row can only go once its children are gone.
+        """
         async with self.sm() as s:
             proj = await s.get(Project, project_id)
             if proj is None:
                 return False
+            for model in (
+                Source,
+                IngestedEvent,
+                BuildLedger,
+                FsSnapshot,
+                ConversationLog,
+                EntityBaseline,
+            ):
+                await s.execute(delete(model).where(model.org_id == project_id))
             await s.delete(proj)
             await s.commit()
             return True

@@ -81,8 +81,12 @@ export function Dashboard({ id }: { id: string }) {
   };
 
   const onDelete = async () => {
-    await api.deleteProject(id);
-    router.push("/projects");
+    try {
+      await api.deleteProject(id);
+      router.push("/projects");
+    } catch (e) {
+      alert(`Could not delete project: ${e}`);
+    }
   };
 
   // ---- loading ----
