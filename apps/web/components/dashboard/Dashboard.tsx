@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher, type Analytics, type Project, type Source } from "@/lib/api";
 import { clearSession, useUser } from "@/lib/auth";
@@ -11,10 +11,18 @@ import { SourcesView } from "@/components/dashboard/SourcesView";
 import { ConnectView } from "@/components/dashboard/ConnectView";
 import { SettingsView } from "@/components/dashboard/SettingsView";
 
+const OAUTH_ERRORS: Record<string, string> = {
+  oauth_not_configured: "That provider isn't configured on this instance yet.",
+  HTTPStatusError: "The provider rejected the request. Check the app's redirect URL and try again.",
+  OAuthError: "Authorization failed. Please try again.",
+};
+
 export function Dashboard({ id }: { id: string }) {
   const user = useUser();
   const router = useRouter();
+  const search = useSearchParams();
   const [view, setView] = useState<View>("sources");
+  const [banner, setBanner] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
   const projects = useSWR<Project[]>(user ? "/projects" : null, fetcher);
   const project = useSWR<Project>(user ? `/projects/${id}` : null, fetcher, { refreshInterval: 8000 });
@@ -24,6 +32,25 @@ export function Dashboard({ id }: { id: string }) {
   const analytics = useSWR<Analytics>(user ? `/projects/${id}/analytics` : null, fetcher, {
     refreshInterval: 8000,
   });
+
+  // Surface the OAuth callback result (?connected / ?error), then clean the URL.
+  useEffect(() => {
+    const connected = search.get("connected");
+    const err = search.get("error");
+    if (!connected && !err) return;
+    if (connected) {
+      setBanner({
+        kind: "ok",
+        msg: `${connected[0].toUpperCase() + connected.slice(1)} connected — add a ${connected === "github" ? "repository" : "channel"} below.`,
+      });
+      project.mutate();
+      sources.mutate();
+    } else if (err) {
+      setBanner({ kind: "err", msg: OAUTH_ERRORS[err] ?? `Connect failed: ${err}` });
+    }
+    router.replace(`/projects/${id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, id]);
 
   if (!user) return null;
 
@@ -123,6 +150,14 @@ export function Dashboard({ id }: { id: string }) {
       />
       <main className="main">
         <div className="main-inner">
+          {banner && (
+            <div className={"banner " + banner.kind}>
+              <span>{banner.msg}</span>
+              <button onClick={() => setBanner(null)} aria-label="Dismiss">
+                ✕
+              </button>
+            </div>
+          )}
           {view === "sources" ? (
             <SourcesView
               project={project.data}

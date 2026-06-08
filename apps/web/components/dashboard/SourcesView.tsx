@@ -7,6 +7,7 @@ import {
   fetcher,
   type Analytics,
   type Channel,
+  type Health,
   type Project,
   type Repo,
   type Source,
@@ -143,6 +144,7 @@ function AddSourceModal({
   const [channel, setChannel] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   const channels = useSWR<Channel[]>(
     step === "slack" && project.slack_connected ? `/oauth/slack/channels?project_id=${project.id}` : null,
@@ -152,6 +154,9 @@ function AddSourceModal({
     step === "github" && project.github_connected ? `/oauth/github/repos?project_id=${project.id}` : null,
     fetcher,
   );
+  const health = useSWR<Health>("/health", fetcher);
+  const ghOauth = !!health.data?.oauth.github;
+  const slackOauth = !!health.data?.oauth.slack;
 
   async function connect(kind: "github" | "slack", config: Record<string, unknown>, secret?: string | null) {
     setBusy(true);
@@ -264,6 +269,18 @@ function AddSourceModal({
               </>
             ) : (
               <>
+                {ghOauth && (
+                  <>
+                    <button
+                      className="btn primary lg connect-btn"
+                      onClick={() => (window.location.href = api.oauthStartUrl("github", project.id))}
+                    >
+                      <Icon.github size={16} />
+                      Connect with GitHub
+                    </button>
+                    <div className="or-sep">or add a repo with a token</div>
+                  </>
+                )}
                 <label className="field-label">Repository</label>
                 <div className="field">
                   <span className="field-ic">
@@ -273,11 +290,11 @@ function AddSourceModal({
                     autoFocus
                     value={repo}
                     onChange={(e) => setRepo(e.target.value)}
-                    placeholder="octocat/Hello-World"
+                    placeholder="octocat/Hello-World  (or a GitHub URL)"
                   />
                 </div>
                 <label className="field-label" style={{ marginTop: 12 }}>
-                  Token <span style={{ color: "var(--tx-3)" }}>· optional for public repos</span>
+                  Access token <span style={{ color: "var(--tx-3)" }}>· only for private repos</span>
                 </label>
                 <div className="field">
                   <span className="field-ic">
@@ -287,20 +304,45 @@ function AddSourceModal({
                     type="password"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
-                    placeholder="ghp_…"
+                    placeholder="github_pat_… or ghp_…"
                   />
                 </div>
                 <p className="modal-note">
-                  Public repos need no token.{" "}
-                  <button
-                    className="link-btn"
-                    style={{ color: "var(--p-text)", textDecoration: "underline" }}
-                    onClick={() => (window.location.href = api.oauthStartUrl("github", project.id))}
-                  >
-                    Connect GitHub
-                  </button>{" "}
-                  to browse private repos.
+                  Public repos need no token. For a private repo, paste a read-only token —{" "}
+                  <button className="help-toggle" onClick={() => setShowHelp((s) => !s)}>
+                    {showHelp ? "hide steps" : "how to create one (least privilege)"}
+                  </button>
+                  .
                 </p>
+                {showHelp && (
+                  <div className="token-help">
+                    <b>Fine-grained token — read-only, this repo only</b>
+                    <ol>
+                      <li>
+                        Open{" "}
+                        <a
+                          href="https://github.com/settings/personal-access-tokens/new"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          github.com/settings/personal-access-tokens/new
+                        </a>
+                        .
+                      </li>
+                      <li>
+                        <b>Repository access</b> → <i>Only select repositories</i> → pick this repo.
+                      </li>
+                      <li>
+                        <b>Permissions → Repository</b>: set <code>Contents</code>, <code>Issues</code>,{" "}
+                        <code>Pull requests</code> and <code>Metadata</code> to <b>Read-only</b>.
+                      </li>
+                      <li>
+                        <b>Generate token</b>, copy the <code>github_pat_…</code> value, paste it above.
+                      </li>
+                    </ol>
+                    MeaningGrid only ever reads — it never writes to your repo.
+                  </div>
+                )}
               </>
             )}
             {err && <p className="modal-err">{err}</p>}
@@ -360,9 +402,12 @@ function AddSourceModal({
                   </button>
                 </div>
               </>
-            ) : (
+            ) : slackOauth ? (
               <>
-                <p className="modal-note">Connect Slack to pull channel history into this grid.</p>
+                <p className="modal-note">
+                  Authorize MeaningGrid to read channel history (read-only). You&apos;ll pick a channel
+                  after connecting.
+                </p>
                 {err && <p className="modal-err">{err}</p>}
                 <div className="modal-actions">
                   <button className="btn ghost" onClick={() => setStep("pick")}>
@@ -373,7 +418,20 @@ function AddSourceModal({
                     onClick={() => (window.location.href = api.oauthStartUrl("slack", project.id))}
                   >
                     <Icon.slack size={15} />
-                    Connect Slack
+                    Connect with Slack
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="modal-note">
+                  Slack isn&apos;t configured on this instance yet. An admin needs to set
+                  <code className="ic"> SLACK_OAUTH_CLIENT_ID</code> /{" "}
+                  <code className="ic">SLACK_OAUTH_CLIENT_SECRET</code> and restart.
+                </p>
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
                   </button>
                 </div>
               </>
