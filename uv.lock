@@ -968,12 +968,14 @@ version = "0.0.1"
 source = { editable = "packages/shared" }
 dependencies = [
     { name = "pydantic" },
+    { name = "pyjwt" },
     { name = "sqlalchemy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
+    { name = "pyjwt", specifier = ">=2.9" },
     { name = "sqlalchemy", specifier = ">=2.0" },
 ]
 

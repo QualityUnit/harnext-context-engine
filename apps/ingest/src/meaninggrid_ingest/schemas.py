@@ -40,6 +40,11 @@ class ProjectRename(BaseModel):
     name: str
 
 
+class McpInfoOut(BaseModel):
+    endpoint: str
+    token: str
+
+
 class AnalyticsOut(BaseModel):
     events_per_day: list[int]
     total_events: int

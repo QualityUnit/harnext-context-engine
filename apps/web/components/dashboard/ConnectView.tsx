@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { Project, Source } from "@/lib/api";
+import useSWR from "swr";
+import { fetcher, type McpInfo, type Project, type Source } from "@/lib/api";
 import { Icon } from "@/components/DashIcons";
-
-const MCP_BASE = process.env.NEXT_PUBLIC_MCP_BASE_URL ?? "http://localhost:8765/mcp";
 
 function Copyable({ code, label }: { code: string; label?: string }) {
   const [done, setDone] = useState(false);
@@ -56,8 +55,19 @@ const HARNESSES = ["Claude Code", "Codex", "Cursor", "Generic MCP / CLI"];
 
 export function ConnectView({ project, sources }: { project: Project; sources: Source[] }) {
   const [tab, setTab] = useState("Claude Code");
-  const endpoint = MCP_BASE;
+  const [revealed, setRevealed] = useState(false);
+  const { data: mcp } = useSWR<McpInfo>(`/projects/${project.id}/mcp`, fetcher);
+
+  const endpoint = mcp?.endpoint ?? "http://localhost:8765/mcp";
+  const token = mcp?.token ?? "";
+  const tokenShown = token ? (revealed ? token : `${token.slice(0, 12)}…${token.slice(-6)}`) : "loading…";
   const n = sources.length;
+
+  // One command/config per harness — same endpoint, project-scoped bearer token.
+  const claudeCmd = `claude mcp add --transport http meaninggrid \\\n  ${endpoint} \\\n  --header "Authorization: Bearer ${token}"`;
+  const codexToml = `[mcp_servers.meaninggrid]\nurl = "${endpoint}"\nhttp_headers = { Authorization = "Bearer ${token}" }`;
+  const jsonCfg = (transport: boolean) =>
+    `{\n  "mcpServers": {\n    "meaninggrid": {\n${transport ? '      "transport": "http",\n' : ""}      "url": "${endpoint}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`;
 
   return (
     <div className="view">
@@ -70,8 +80,9 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
           </div>
           <h1 className="view-title">Connect a harness</h1>
           <p className="view-desc">
-            Point your agent at <b>{project.name}</b>&apos;s context grid over MCP. Same endpoint, every harness —
-            it exposes <code>context_research</code>, <code>context_get_urls</code> and <code>context_update</code>.
+            Point your agent at <b>{project.name}</b>&apos;s context grid over MCP. One always-on endpoint;
+            the bearer token below scopes the connection to this project and exposes{" "}
+            <code>context_research</code>, <code>context_get_urls</code> and <code>context_update</code>.
           </p>
         </div>
       </div>
@@ -87,11 +98,24 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
         </div>
         <div className="ep-row">
           <span className="ep-k">
-            <Icon.sources size={13} />
-            Project scope
+            <Icon.zap size={13} />
+            Bearer token
           </span>
-          <code className="ep-v">{project.id}</code>
-          <span className="ep-tag">org</span>
+          <code className="ep-v">{tokenShown}</code>
+          <button
+            className="icon-btn"
+            title={revealed ? "Hide" : "Reveal"}
+            onClick={() => setRevealed((r) => !r)}
+          >
+            <Icon.settings size={14} />
+          </button>
+          <button
+            className="icon-btn"
+            title="Copy token"
+            onClick={() => token && navigator.clipboard?.writeText(token).catch(() => {})}
+          >
+            <Icon.copy size={14} />
+          </button>
         </div>
       </div>
 
@@ -107,22 +131,16 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
       <div className="steps">
         {tab === "Claude Code" && (
           <>
-            <Step n="1" title="Launch the grid's MCP server for this project">
+            <Step n="1" title="Add MeaningGrid as an MCP server">
               <p className="step-p">
-                The server is one process per project, scoped by <code className="ic">MEANINGGRID_ORG_ID</code>.
+                One command, run in your repo root — Claude Code writes it to <code className="ic">.mcp.json</code>.
               </p>
-              <Copyable label="bash" code={`MEANINGGRID_ORG_ID=${project.id} uv run meaninggrid-mcp`} />
+              <Copyable label="bash" code={claudeCmd} />
             </Step>
-            <Step n="2" title="Register it with Claude Code">
+            <Step n="2" title="Verify and use it">
               <p className="step-p">
-                Run this in your repo root — Claude Code writes it to <code className="ic">.mcp.json</code>.
-              </p>
-              <Copyable label="bash" code={`claude mcp add --transport http meaninggrid ${endpoint}`} />
-            </Step>
-            <Step n="3" title="Ask across your context">
-              <p className="step-p">
-                List tools to confirm (<code className="ic">claude mcp list</code> → {n} source
-                {n === 1 ? "" : "s"}), then query the grid.
+                <code className="ic">claude mcp list</code> should show <b>meaninggrid</b> connected with 3
+                tools{n ? ` over ${n} source${n === 1 ? "" : "s"}` : ""}. Then just ask:
               </p>
               <Copyable code={`> why did we move incidents off the legacy queue?\n  ↳ context_research(question="…")`} />
             </Step>
@@ -130,67 +148,33 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
         )}
 
         {tab === "Codex" && (
-          <>
-            <Step n="1" title="Launch the MCP server">
-              <Copyable label="bash" code={`MEANINGGRID_ORG_ID=${project.id} uv run meaninggrid-mcp`} />
-            </Step>
-            <Step n="2" title="Add it to your Codex config">
-              <p className="step-p">
-                Append to <code className="ic">~/.codex/config.toml</code>.
-              </p>
-              <Copyable
-                label="toml"
-                code={`[mcp_servers.meaninggrid]\nurl = "${endpoint}"\ntransport = "http"`}
-              />
-            </Step>
-            <Step n="3" title="Reference it in a task">
-              <Copyable code={`codex "use the meaninggrid context for ${project.name}"`} />
-            </Step>
-          </>
+          <Step n="1" title="Add the server to your Codex config">
+            <p className="step-p">
+              Append to <code className="ic">~/.codex/config.toml</code> — the header carries this project&apos;s
+              token.
+            </p>
+            <Copyable label="toml" code={codexToml} />
+          </Step>
         )}
 
         {tab === "Cursor" && (
-          <>
-            <Step n="1" title="Launch the MCP server">
-              <Copyable label="bash" code={`MEANINGGRID_ORG_ID=${project.id} uv run meaninggrid-mcp`} />
-            </Step>
-            <Step n="2" title="Add the server to Cursor">
-              <p className="step-p">
-                Create <code className="ic">.cursor/mcp.json</code> in your project (or edit the global one in
-                Settings → MCP).
-              </p>
-              <Copyable
-                label="json"
-                code={`{\n  "mcpServers": {\n    "meaninggrid": {\n      "url": "${endpoint}"\n    }\n  }\n}`}
-              />
-            </Step>
-            <Step n="3" title="Use it from the Agent">
-              <p className="step-p">In Agent mode (⌘I) the grid&apos;s retrievers are available as tools automatically.</p>
-              <Copyable code={`@meaninggrid where do we validate webhook signatures?`} />
-            </Step>
-          </>
+          <Step n="1" title="Add the server to Cursor">
+            <p className="step-p">
+              Create <code className="ic">.cursor/mcp.json</code> in your project (or edit the global one in
+              Settings → MCP), then toggle <b>meaninggrid</b> on.
+            </p>
+            <Copyable label="json" code={jsonCfg(false)} />
+          </Step>
         )}
 
         {tab === "Generic MCP / CLI" && (
-          <>
-            <Step n="1" title="Any MCP-compatible client">
-              <p className="step-p">
-                MeaningGrid speaks the streamable-HTTP MCP transport. Works with Cursor, Continue, Cline and custom
-                agents.
-              </p>
-              <Copyable
-                label="json"
-                code={`{\n  "mcpServers": {\n    "meaninggrid": {\n      "transport": "http",\n      "url": "${endpoint}"\n    }\n  }\n}`}
-              />
-            </Step>
-            <Step n="2" title="Self-host the whole engine">
-              <p className="step-p">It&apos;s open source — run the full pipeline locally.</p>
-              <Copyable
-                label="bash"
-                code={`# ingest · classifier · builder · mcp\nmake up\nMEANINGGRID_ORG_ID=${project.id} uv run meaninggrid-mcp`}
-              />
-            </Step>
-          </>
+          <Step n="1" title="Any MCP-compatible client">
+            <p className="step-p">
+              MeaningGrid speaks the streamable-HTTP MCP transport with a bearer token. Works with Cursor,
+              Continue, Cline and custom agents.
+            </p>
+            <Copyable label="json" code={jsonCfg(true)} />
+          </Step>
         )}
       </div>
     </div>

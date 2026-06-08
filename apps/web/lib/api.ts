@@ -41,6 +41,11 @@ export interface Source {
   event_count: number;
 }
 
+export interface McpInfo {
+  endpoint: string;
+  token: string;
+}
+
 export interface Analytics {
   events_per_day: number[];
   total_events: number;
@@ -136,6 +141,7 @@ export const api = {
   renameProject: (id: string, name: string) =>
     req<Project>(`/projects/${id}`, { ...json({ name }), method: "PATCH" }),
   getAnalytics: (id: string) => req<Analytics>(`/projects/${id}/analytics`),
+  getMcpInfo: (id: string) => req<McpInfo>(`/projects/${id}/mcp`),
   disconnectProvider: (id: string, provider: string) =>
     req<unknown>(`/projects/${id}/integrations/${provider}`, { method: "DELETE" }),
 

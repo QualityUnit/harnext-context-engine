@@ -2,7 +2,8 @@
 
 Built on first use so the async engine binds to FastMCP's event loop. Reuses the
 builder's OrgFsStore + BuildRunner so the MCP server reads/writes the same store
-the builder maintains.
+the builder maintains. These resources are org-agnostic — the per-request tenant
+is resolved from the bearer token and passed into each call.
 """
 
 from __future__ import annotations
@@ -18,39 +19,34 @@ from meaninggrid_builder.settings import BuilderSettings
 from meaninggrid_shared import init_db, make_engine, make_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from meaninggrid_mcp.settings import MCPSettings
-
 
 @dataclass
-class Context:
-    org_id: str
+class Resources:
     builder_settings: BuilderSettings
     sm: async_sessionmaker[AsyncSession]
     store: OrgFsStore
     build_runner: BuildRunner
 
 
-_ctx: Context | None = None
+_res: Resources | None = None
 _lock = asyncio.Lock()
 
 
-async def get_ctx() -> Context:
-    global _ctx
-    if _ctx is not None:
-        return _ctx
+async def get_resources() -> Resources:
+    global _res
+    if _res is not None:
+        return _res
     async with _lock:
-        if _ctx is None:
-            mcp_settings = MCPSettings()
+        if _res is None:
             builder_settings = BuilderSettings()
             engine = make_engine(builder_settings.database_url)
             await init_db(engine)
             sm = make_sessionmaker(engine)
             store = OrgFsStore(get_backend(builder_settings), sm)
-            _ctx = Context(
-                org_id=mcp_settings.org_id,
+            _res = Resources(
                 builder_settings=builder_settings,
                 sm=sm,
                 store=store,
                 build_runner=BuildRunner(store, Persistence(sm), builder_settings),
             )
-    return _ctx
+    return _res

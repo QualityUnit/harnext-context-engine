@@ -37,6 +37,20 @@ def test_security_primitives():
     assert decode_token("garbage", "secret") is None
 
 
+def test_mcp_token_roundtrip():
+    from meaninggrid_shared import create_mcp_token, decode_mcp_token
+
+    tok = create_mcp_token("org-xyz", "s3cret")
+    assert decode_mcp_token(tok, "s3cret") == "org-xyz"
+    assert decode_mcp_token(tok, "wrong-secret") is None
+    assert decode_mcp_token("garbage", "s3cret") is None
+    assert create_mcp_token("org-xyz", "s3cret") == tok  # deterministic / stable
+    # a user session token (no mcp scope) must NOT pass as an MCP token, and vice versa
+    session = create_token("user-1", "s3cret", 1)
+    assert decode_mcp_token(session, "s3cret") is None
+    assert decode_token(tok, "s3cret") is None
+
+
 async def test_register_login_projects(tmp_path):
     svc, engine, _ = await _svc(tmp_path)
     try:

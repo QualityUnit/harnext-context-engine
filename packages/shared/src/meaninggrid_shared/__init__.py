@@ -13,6 +13,7 @@ from meaninggrid_shared.db import (
     utcnow,
 )
 from meaninggrid_shared.envelope import CloudEvent
+from meaninggrid_shared.mcp_auth import create_mcp_token, decode_mcp_token
 from meaninggrid_shared.session import (
     init_db,
     make_engine,
@@ -50,6 +51,8 @@ __all__ = [
     "Source",
     "User",
     "configure_sqlite_pragmas",
+    "create_mcp_token",
+    "decode_mcp_token",
     "dlq_topic_for",
     "init_db",
     "make_engine",

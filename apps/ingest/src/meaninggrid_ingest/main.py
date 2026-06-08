@@ -15,6 +15,7 @@ from meaninggrid_shared import (
     Project,
     Source,
     User,
+    create_mcp_token,
     init_db,
     make_engine,
     make_sessionmaker,
@@ -31,6 +32,7 @@ from meaninggrid_ingest.schemas import (
     ChannelOut,
     EventOut,
     LoginIn,
+    McpInfoOut,
     ProjectCreate,
     ProjectOut,
     ProjectRename,
@@ -290,6 +292,16 @@ async def rename_project(
 async def project_analytics(project_id: str, svc: SvcDep, user: UserDep) -> dict:
     await _owned_project(svc, user, project_id)
     return await svc.project_analytics(project_id)
+
+
+@app.get("/projects/{project_id}/mcp", response_model=McpInfoOut)
+async def project_mcp(project_id: str, svc: SvcDep, user: UserDep, cfg: CfgDep) -> McpInfoOut:
+    """The MCP endpoint + a per-project bearer token scoping it to this project."""
+    await _owned_project(svc, user, project_id)
+    return McpInfoOut(
+        endpoint=cfg.mcp_public_url,
+        token=create_mcp_token(project_id, cfg.jwt_secret),
+    )
 
 
 @app.delete("/projects/{project_id}/integrations/{provider}")

@@ -5,6 +5,7 @@ description = "Shared types: CloudEvents envelope, pipeline protocols, DB models
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.9",
+    "pyjwt>=2.9",
     "sqlalchemy>=2.0",
 ]
 

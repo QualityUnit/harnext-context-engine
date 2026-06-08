@@ -17,9 +17,13 @@ class IngestSettings(BaseSettings):
     # Public base URL of this API, used to build OAuth callback URLs.
     oauth_redirect_base: str = "http://localhost:8000"
 
-    # Auth sessions (JWT). Set a strong JWT_SECRET in production.
+    # Auth sessions (JWT). Set a strong JWT_SECRET in production. The same secret
+    # signs the per-project MCP bearer tokens (verified by the MCP server).
     jwt_secret: str = "dev-insecure-change-me-please-set-JWT_SECRET-in-env-0123456789"
     jwt_expiry_hours: int = 168  # 7 days
+
+    # Public URL of the (multi-tenant) MCP server, shown in the Connect panel.
+    mcp_public_url: str = "http://localhost:8765/mcp"
 
     # OAuth apps (register your own; leave empty to disable a provider).
     github_oauth_client_id: str | None = None
