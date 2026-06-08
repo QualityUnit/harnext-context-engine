@@ -14,6 +14,9 @@ import {
 import { formatBytes, rel, sourceName, uiStatus, STATUS } from "@/lib/sourceDisplay";
 import { Icon } from "@/components/DashIcons";
 
+const errMsg = (e: unknown): string =>
+  (e instanceof Error ? e.message : String(e)).replace(/^sync failed:\s*/i, "");
+
 // ---- source card -----------------------------------------------------------
 function SourceCard({
   s,
@@ -141,20 +144,27 @@ function AddSourceModal({
   async function connect(kind: "github" | "slack", config: Record<string, unknown>, secret?: string | null) {
     setBusy(true);
     setErr(null);
+    let src: Source;
     try {
-      const src = await api.createSource(project.id, kind, config, secret ?? null);
-      try {
-        await api.syncSource(src.id);
-      } catch {
-        /* source created; first sync may need a token — surfaced as Error status */
-      }
-      onAdded();
-      onClose();
+      src = await api.createSource(project.id, kind, config, secret ?? null);
     } catch (e) {
-      setErr(String(e));
-    } finally {
+      setErr(errMsg(e));
       setBusy(false);
+      return;
     }
+    // The first sync doubles as a connection test: a private repo with a
+    // missing/wrong token (or a bad channel/token) fails here. Reject the
+    // source instead of keeping a broken one.
+    try {
+      await api.syncSource(src.id);
+    } catch (e) {
+      await api.deleteSource(src.id).catch(() => {});
+      setErr(errMsg(e));
+      setBusy(false);
+      return;
+    }
+    onAdded();
+    onClose();
   }
 
   const title =

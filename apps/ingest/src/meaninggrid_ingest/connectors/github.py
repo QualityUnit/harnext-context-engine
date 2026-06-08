@@ -137,9 +137,17 @@ class GitHubConnector:
             q["since"] = since
         r = await client.get(url, params=q)
         if r.status_code == 404:
-            raise RuntimeError(f"GitHub 404 for {url} — repo not found or private (need a token?)")
-        if r.status_code == 403 and "rate limit" in r.text.lower():
-            raise RuntimeError("GitHub rate limit exceeded — add a token to increase it")
+            raise RuntimeError(
+                "repository not found or private — check the name and provide a token with access"
+            )
+        if r.status_code == 401:
+            raise RuntimeError("GitHub rejected the token — it's invalid or expired")
+        if r.status_code == 403:
+            if "rate limit" in r.text.lower():
+                raise RuntimeError("GitHub rate limit exceeded — add a token to increase it")
+            raise RuntimeError(
+                "GitHub denied access (403) — the token lacks permission for this repository"
+            )
         r.raise_for_status()
         data = r.json()
         return data if isinstance(data, list) else []

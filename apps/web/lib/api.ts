@@ -98,7 +98,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error("unauthorized");
   }
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try {
+      const j = JSON.parse(text);
+      if (j && typeof j.detail === "string") msg = j.detail;
+    } catch {
+      /* body wasn't JSON — fall back to raw text */
+    }
+    throw new Error(msg || `${res.status} ${res.statusText}`);
+  }
   return res.json() as Promise<T>;
 }
 
