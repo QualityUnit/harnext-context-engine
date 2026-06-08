@@ -56,10 +56,14 @@ class _Runtime:
     """A worker-process-local bridge from Celery's synchronous tasks to the
     async producer/DB. One event loop runs on a daemon thread; ``run`` submits a
     coroutine to it and blocks for the result. Built once and reused, so the
-    Kafka producer connects a single time per worker — not per task."""
+    Kafka producer connects a single time per worker — not per task.
 
-    def __init__(self, service: SourceService, settings: IngestSettings) -> None:
-        self.service = service
+    ``service`` is assigned by the builder immediately after construction, once
+    the producer has been created *on the runtime loop* (see ``_default_runtime``)."""
+
+    service: SourceService
+
+    def __init__(self, settings: IngestSettings) -> None:
         self.settings = settings
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
@@ -77,11 +81,19 @@ _RT: _Runtime | None = None
 def _default_runtime() -> _Runtime:
     settings = IngestSettings()
     engine = make_engine(settings.database_url)
-    producer = Producer(settings.kafka_bootstrap_servers)
-    service = SourceService(make_sessionmaker(engine), producer, settings)
-    rt = _Runtime(service, settings)
-    rt.run(init_db(engine))  # idempotent — safe if the API already created tables
-    rt.run(producer.start())
+    sm = make_sessionmaker(engine)
+    rt = _Runtime(settings)  # starts the loop thread; service is filled in below
+
+    async def _setup() -> SourceService:
+        # AIOKafkaProducer binds to the *running* loop when it's constructed, so
+        # the producer must be built (and started) on the runtime loop — not on
+        # the worker's main thread, which has no running loop.
+        await init_db(engine)  # idempotent — safe if the API already created tables
+        producer = Producer(settings.kafka_bootstrap_servers)
+        await producer.start()
+        return SourceService(sm, producer, settings)
+
+    rt.service = rt.run(_setup())
     return rt
 
 

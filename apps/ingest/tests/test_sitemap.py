@@ -371,6 +371,34 @@ async def test_crawl_one_persists_event(tmp_path, monkeypatch):
         await engine.dispose()
 
 
+def test_default_runtime_builds_producer_on_loop(tmp_path, monkeypatch):
+    """Regression: the Kafka producer (AIOKafkaProducer) binds to the running loop
+    at construction, so the runtime must build it *on its loop thread*, not the
+    worker's main thread. A producer that asserts a running loop in __init__
+    reproduces the original crash if the runtime regresses."""
+    import asyncio as _asyncio
+
+    class LoopBoundProducer:
+        def __init__(self, bootstrap):
+            _asyncio.get_running_loop()  # raises if constructed off-loop (the bug)
+
+        async def start(self):
+            pass
+
+        async def send_event(self, topic, event):  # pragma: no cover
+            pass
+
+    monkeypatch.setattr(crawler, "Producer", LoopBoundProducer)
+    monkeypatch.setattr(
+        crawler,
+        "IngestSettings",
+        lambda: IngestSettings(database_url=f"sqlite+aiosqlite:///{tmp_path}/rt.sqlite"),
+    )
+    rt = crawler._default_runtime()
+    # the runtime is usable: its service runs on the loop without error
+    assert rt.run(rt.service.get_source("does-not-exist")) is None
+
+
 def test_crawl_sitemap_fans_out_and_advances_cursor(tmp_path, monkeypatch):
     """crawl_sitemap discovers, enqueues one spaced crawl_url per page, and moves
     the cursor up front — without a live broker (apply_async is captured)."""
@@ -378,7 +406,8 @@ def test_crawl_sitemap_fans_out_and_advances_cursor(tmp_path, monkeypatch):
     engine = make_engine(f"sqlite+aiosqlite:///{tmp_path}/meta.sqlite")
     producer = FakeProducer()
     svc = SourceService(make_sessionmaker(engine), producer, settings)
-    rt = crawler._Runtime(svc, settings)  # real loop-thread bridge, no Kafka producer
+    rt = crawler._Runtime(settings)  # real loop-thread bridge, no Kafka producer
+    rt.service = svc
     try:
         rt.run(init_db(engine))
         u = rt.run(svc.register("a@b.com", "hunter2", "A"))
