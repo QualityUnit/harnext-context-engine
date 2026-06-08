@@ -198,7 +198,7 @@ async def google_start(svc: SvcDep, cfg: CfgDep) -> RedirectResponse:
     if not cfg.google_oauth_client_id:
         return RedirectResponse(f"{cfg.web_origin}/login?error=google_not_configured")
     state = oauth.new_state("", "google")
-    redirect = oauth.redirect_uri(cfg.oauth_redirect_base, "google")
+    redirect = f"{cfg.oauth_redirect_base}/auth/google/callback"
     return RedirectResponse(oauth.google_authorize_url(cfg.google_oauth_client_id, redirect, state))
 
 
@@ -211,7 +211,7 @@ async def google_callback(
         raise HTTPException(400, "invalid or expired OAuth state")
     if not cfg.google_oauth_client_id or not cfg.google_oauth_client_secret:
         raise HTTPException(400, "google oauth not configured")
-    redirect = oauth.redirect_uri(cfg.oauth_redirect_base, "google")
+    redirect = f"{cfg.oauth_redirect_base}/auth/google/callback"
     try:
         info = await oauth.google_exchange(
             cfg.google_oauth_client_id, cfg.google_oauth_client_secret, code, redirect
