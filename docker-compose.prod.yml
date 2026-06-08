@@ -18,6 +18,8 @@ x-py: &py
   depends_on:
     redpanda:
       condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
   networks: [internal]
 
 services:
@@ -62,6 +64,27 @@ services:
         rpk -X brokers=redpanda:9092 topic create cms.events.fast.v1  -p 50 -r 1 || true
         rpk -X brokers=redpanda:9092 topic create cms.events.batch.v1 -p 30 -r 1 || true
         rpk -X brokers=redpanda:9092 topic list
+
+  # ---- schema migration (runs once, before any app service) -----------------
+  # Brings the shared SQLite to the latest Alembic revision. Gating every app
+  # service on this (service_completed_successfully) means the four services
+  # never race to migrate the same file on a fresh DB. Does NOT use the *py
+  # anchor (it must not depend on itself) and needs no redpanda.
+  migrate:
+    image: meaninggrid-py:latest
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.python
+    container_name: meaninggrid-migrate
+    env_file: [.env]
+    restart: "no"
+    command:
+      - python
+      - -c
+      - "import asyncio, os; from meaninggrid_shared import make_engine, init_db; asyncio.run(init_db(make_engine(os.environ['DATABASE_URL'])))"
+    volumes:
+      - mg_data:/app/data
+    networks: [internal]
 
   # ---- app services (one image, four commands) ------------------------------
   ingest:

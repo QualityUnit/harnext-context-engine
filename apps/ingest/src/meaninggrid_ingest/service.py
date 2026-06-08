@@ -18,6 +18,7 @@ from meaninggrid_shared import (
     EntityBaseline,
     FsSnapshot,
     IngestedEvent,
+    McpRequest,
     Project,
     Source,
     User,
@@ -191,6 +192,7 @@ class SourceService:
                 FsSnapshot,
                 ConversationLog,
                 EntityBaseline,
+                McpRequest,
             ):
                 await s.execute(delete(model).where(model.org_id == project_id))
             await s.delete(proj)
@@ -535,3 +537,50 @@ class SourceService:
                 .limit(limit)
             )
             return list((await s.execute(q)).scalars())
+
+    # -- MCP server activity ----------------------------------------------
+    async def list_mcp_requests(self, project_id: str, limit: int = 50) -> list[McpRequest]:
+        async with self.sm() as s:
+            q = (
+                select(McpRequest)
+                .where(McpRequest.org_id == project_id)
+                .order_by(desc(McpRequest.created_at))
+                .limit(limit)
+            )
+            return list((await s.execute(q)).scalars())
+
+    async def mcp_analytics(self, project_id: str, days: int = 14) -> dict:
+        async with self.sm() as s:
+            rows = (
+                await s.execute(
+                    select(
+                        McpRequest.created_at,
+                        McpRequest.status,
+                        McpRequest.duration_ms,
+                        McpRequest.tool,
+                    ).where(McpRequest.org_id == project_id)
+                )
+            ).all()
+
+        total = len(rows)
+        errors = sum(1 for r in rows if r.status == "error")
+        avg = int(sum(r.duration_ms for r in rows) / total) if total else 0
+        by_tool: dict[str, int] = {}
+        for r in rows:
+            by_tool[r.tool] = by_tool.get(r.tool, 0) + 1
+
+        today = utcnow().date()
+        counts = {today - timedelta(days=i): 0 for i in range(days)}
+        for r in rows:
+            d = r.created_at.date()
+            if d in counts:
+                counts[d] += 1
+        series = [counts[today - timedelta(days=i)] for i in range(days - 1, -1, -1)]
+        return {
+            "requests_per_day": series,
+            "total_requests": total,
+            "total_errors": errors,
+            "avg_duration_ms": avg,
+            "by_tool": by_tool,
+            "days": days,
+        }

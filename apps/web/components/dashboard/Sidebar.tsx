@@ -5,7 +5,7 @@ import type { User } from "@/lib/api";
 import type { Ws } from "@/lib/workspace";
 import { Icon } from "@/components/DashIcons";
 
-export type View = "sources" | "connect" | "settings";
+export type View = "sources" | "connect" | "mcp" | "settings";
 
 function WorkspaceSwitcher({
   workspaces,
@@ -115,6 +115,7 @@ export function Sidebar({
   const nav = [
     { id: "sources" as const, label: "Sources", icon: Icon.sources },
     { id: "connect" as const, label: "Connect", icon: Icon.connect },
+    { id: "mcp" as const, label: "MCP activity", icon: Icon.activity },
   ];
   const label = user?.name || user?.email || "self-hosted";
   const initials = (user?.name || user?.email || "MG")

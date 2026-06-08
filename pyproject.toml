@@ -33,6 +33,8 @@ meaninggrid-mcp = { workspace = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Alembic-generated revision files — don't lint generated DDL.
+extend-exclude = ["packages/shared/src/meaninggrid_shared/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "W", "ASYNC"]

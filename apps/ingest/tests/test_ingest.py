@@ -143,6 +143,98 @@ async def test_delete_project_cascades(tmp_path, monkeypatch):
         await engine.dispose()
 
 
+async def test_mcp_request_analytics_and_list(tmp_path):
+    """MCP request rows feed the dashboard: a newest-first list + a per-day /
+    per-tool / error aggregate, scoped to the project and cleaned up on delete."""
+    from meaninggrid_shared import McpRequest
+
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        other = await svc.create_project(u.id, "Other")
+
+        async with svc.sm() as s:
+            s.add_all(
+                [
+                    McpRequest(id="r1", org_id=p.id, tool="context_research",
+                               params_json='{"question":"q"}', status="ok",
+                               response_json='{"answer":"a"}', error=None, duration_ms=120),
+                    McpRequest(id="r2", org_id=p.id, tool="context_update",
+                               params_json='{"instruction":"i"}', status="error",
+                               response_json=None, error="boom", duration_ms=80),
+                    # a different project's row must not leak into P's view
+                    McpRequest(id="r3", org_id=other.id, tool="context_research",
+                               params_json="{}", status="ok", response_json="{}",
+                               error=None, duration_ms=10),
+                ]
+            )
+            await s.commit()
+
+        rows = await svc.list_mcp_requests(p.id)
+        assert [r.id for r in rows] == ["r2", "r1"]  # newest first (r2 created after r1)
+
+        stats = await svc.mcp_analytics(p.id, days=14)
+        assert stats["total_requests"] == 2
+        assert stats["total_errors"] == 1
+        assert stats["avg_duration_ms"] == 100  # (120 + 80) / 2
+        assert stats["by_tool"] == {"context_research": 1, "context_update": 1}
+        assert len(stats["requests_per_day"]) == 14
+        assert sum(stats["requests_per_day"]) == 2  # both landed today
+        assert stats["requests_per_day"][-1] == 2
+
+        # the other project sees only its own row
+        assert (await svc.mcp_analytics(other.id))["total_requests"] == 1
+
+        # deleting the project removes its MCP rows
+        assert await svc.delete_project(p.id) is True
+        assert await svc.list_mcp_requests(p.id) == []
+    finally:
+        await engine.dispose()
+
+
+async def test_mcp_requests_endpoint(tmp_path):
+    """The owned-project guard + JSON round-trip on the two MCP-activity routes."""
+    import httpx
+    from meaninggrid_ingest.main import app
+    from meaninggrid_ingest.main import current_user as user_dep
+    from meaninggrid_ingest.main import service as service_dep
+    from meaninggrid_shared import McpRequest
+
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        async with svc.sm() as s:
+            s.add(
+                McpRequest(id="r1", org_id=p.id, tool="context_get_urls",
+                           params_json='{"urls":["cms://conversation/x"]}', status="ok",
+                           response_json='[{"found":true}]', error=None, duration_ms=42)
+            )
+            await s.commit()
+
+        app.dependency_overrides[service_dep] = lambda: svc
+        app.dependency_overrides[user_dep] = lambda: u
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.get(f"/projects/{p.id}/mcp-requests")
+            assert r.status_code == 200
+            body = r.json()
+            assert len(body) == 1
+            assert body[0]["tool"] == "context_get_urls"
+            assert body[0]["params"] == {"urls": ["cms://conversation/x"]}  # parsed back to JSON
+            assert body[0]["response"] == [{"found": True}]
+            assert body[0]["duration_ms"] == 42
+
+            r = await c.get(f"/projects/{p.id}/mcp-requests/stats")
+            assert r.status_code == 200
+            assert r.json()["total_requests"] == 1
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
 async def test_oauth_token_reuse(tmp_path):
     svc, engine, _ = await _svc(tmp_path)
     try:

@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 from meaninggrid_shared import (
     BuildLedger,
     IngestedEvent,
+    McpRequest,
     Project,
     Source,
     User,
@@ -19,7 +20,6 @@ from meaninggrid_shared import (
     init_db,
     make_engine,
     make_sessionmaker,
-    migrate_schema,
 )
 
 from meaninggrid_ingest import oauth
@@ -33,6 +33,8 @@ from meaninggrid_ingest.schemas import (
     EventOut,
     LoginIn,
     McpInfoOut,
+    McpRequestOut,
+    McpStatsOut,
     ProjectCreate,
     ProjectOut,
     ProjectRename,
@@ -58,7 +60,6 @@ async def lifespan(app: FastAPI):
     settings = IngestSettings()
     engine = make_engine(settings.database_url)
     await init_db(engine)
-    await migrate_schema(engine)
     producer = Producer(settings.kafka_bootstrap_servers)
     await producer.start()
     app.state.settings = settings
@@ -141,6 +142,30 @@ def _source_out(s: Source, event_count: int = 0) -> SourceOut:
         created_at=s.created_at,
         has_secret=bool(s.secret),
         event_count=event_count,
+    )
+
+
+def _maybe_json(raw: str | None) -> object:
+    """Parse a stored JSON payload, falling back to the raw string if it was
+    size-capped (and so no longer valid JSON) at write time."""
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return raw
+
+
+def _mcp_request_out(r: McpRequest) -> McpRequestOut:
+    return McpRequestOut(
+        id=r.id,
+        tool=r.tool,
+        params=_maybe_json(r.params_json),
+        status=r.status,
+        response=_maybe_json(r.response_json),
+        error=r.error,
+        duration_ms=r.duration_ms,
+        created_at=r.created_at,
     )
 
 
@@ -309,6 +334,25 @@ async def project_mcp(project_id: str, svc: SvcDep, user: UserDep, cfg: CfgDep) 
         endpoint=cfg.mcp_public_url,
         token=create_mcp_token(project_id, cfg.jwt_secret),
     )
+
+
+@app.get("/projects/{project_id}/mcp-requests/stats", response_model=McpStatsOut)
+async def project_mcp_stats(project_id: str, svc: SvcDep, user: UserDep) -> dict:
+    """Aggregate MCP request volume (per-day series, totals, per-tool, errors)."""
+    await _owned_project(svc, user, project_id)
+    return await svc.mcp_analytics(project_id)
+
+
+@app.get("/projects/{project_id}/mcp-requests", response_model=list[McpRequestOut])
+async def project_mcp_requests(
+    project_id: str,
+    svc: SvcDep,
+    user: UserDep,
+    limit: Annotated[int, Query(le=500)] = 50,
+) -> list[McpRequestOut]:
+    """Recent MCP tool calls (request + response) for this project, newest first."""
+    await _owned_project(svc, user, project_id)
+    return [_mcp_request_out(r) for r in await svc.list_mcp_requests(project_id, limit)]
 
 
 @app.delete("/projects/{project_id}/integrations/{provider}")

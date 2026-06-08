@@ -53,6 +53,39 @@ async def test_update_research_and_geturls(tmp_path):
         await engine.dispose()
 
 
+async def test_record_request_persists_and_caps(tmp_path):
+    """The activity recorder writes a row per tool call and size-caps payloads so
+    a huge response can't bloat the metadata DB."""
+    from meaninggrid_mcp.activity import _RESPONSE_CAP, record_request
+    from meaninggrid_shared import McpRequest
+    from sqlalchemy import select
+
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path}/a.sqlite")
+    await init_db(engine)
+    sm = make_sessionmaker(engine)
+    try:
+        await record_request(
+            sm, org_id="acme", tool="context_research", params={"question": "q"},
+            status="ok", response={"answer": "a" * 50_000}, error=None, duration_ms=7,
+        )
+        async with sm() as s:
+            row = (await s.execute(select(McpRequest).where(McpRequest.org_id == "acme"))).scalar_one()
+        assert row.tool == "context_research" and row.status == "ok" and row.duration_ms == 7
+        assert row.params_json == '{"question": "q"}'
+        assert row.response_json is not None
+        assert len(row.response_json) <= _RESPONSE_CAP + 1  # capped (+ the ellipsis)
+        assert row.response_json.endswith("…")
+
+        # a logging failure (bad engine) must not raise into the caller
+        broken = make_sessionmaker(make_engine("sqlite+aiosqlite:///\0/nope.sqlite"))
+        await record_request(
+            broken, org_id="x", tool="t", params={}, status="error",
+            response=None, error="e", duration_ms=1,
+        )  # no exception
+    finally:
+        await engine.dispose()
+
+
 async def test_research_no_context(tmp_path):
     settings, sm, store, _br, engine = await _setup(tmp_path)
     try:

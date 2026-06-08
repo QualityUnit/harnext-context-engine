@@ -111,6 +111,26 @@ class BuildOut(BaseModel):
     updated_at: datetime
 
 
+class McpRequestOut(BaseModel):
+    id: str
+    tool: str
+    params: Any
+    status: str
+    response: Any | None
+    error: str | None
+    duration_ms: int
+    created_at: datetime
+
+
+class McpStatsOut(BaseModel):
+    requests_per_day: list[int]
+    total_requests: int
+    total_errors: int
+    avg_duration_ms: int
+    by_tool: dict[str, int]
+    days: int
+
+
 class RepoOut(BaseModel):
     full_name: str
 

@@ -100,6 +100,11 @@ export const Icon = {
       <line x1="12" y1="19" x2="20" y2="19" />
     </Svg>
   ),
+  activity: (p: P) => (
+    <Svg {...p}>
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </Svg>
+  ),
   dots: (p: P) => (
     <Svg {...p}>
       <circle cx="12" cy="5" r="1" />

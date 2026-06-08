@@ -6,6 +6,7 @@ from meaninggrid_shared.db import (
     EntityBaseline,
     FsSnapshot,
     IngestedEvent,
+    McpRequest,
     Project,
     Source,
     User,
@@ -18,7 +19,6 @@ from meaninggrid_shared.session import (
     init_db,
     make_engine,
     make_sessionmaker,
-    migrate_schema,
 )
 from meaninggrid_shared.topics import (
     ALL_TOPICS,
@@ -46,6 +46,7 @@ __all__ = [
     "FAST_EVENTS_TOPIC",
     "FsSnapshot",
     "IngestedEvent",
+    "McpRequest",
     "Project",
     "RAW_EVENTS_TOPIC",
     "Source",
@@ -57,6 +58,5 @@ __all__ = [
     "init_db",
     "make_engine",
     "make_sessionmaker",
-    "migrate_schema",
     "utcnow",
 ]

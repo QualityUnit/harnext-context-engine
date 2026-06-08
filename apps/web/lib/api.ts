@@ -55,6 +55,26 @@ export interface Analytics {
   days: number;
 }
 
+export interface McpRequest {
+  id: string;
+  tool: string;
+  params: unknown;
+  status: string;
+  response: unknown | null;
+  error: string | null;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface McpStats {
+  requests_per_day: number[];
+  total_requests: number;
+  total_errors: number;
+  avg_duration_ms: number;
+  by_tool: Record<string, number>;
+  days: number;
+}
+
 export interface IngestedEvent {
   event_id: string;
   source: string;

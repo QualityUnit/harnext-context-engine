@@ -7,6 +7,7 @@ One SQLite file (WAL) is shared by all apps as the OLTP/metadata store:
     - build idempotency      (BuildLedger)        — written by apps/builder
     - raw-conversation log   (ConversationLog)    — written by apps/builder, read by apps/mcp
     - FS snapshot index      (FsSnapshot)         — written by apps/builder, read by apps/mcp
+    - MCP request/response   (McpRequest)         — written by apps/mcp, read by apps/ingest
 
 The per-org *context* itself does NOT live here — it lives in each org's
 AgentFS store (see apps/builder/agentfs). This DB only holds metadata and the
@@ -250,5 +251,34 @@ class FsSnapshot(Base):
     parent_snapshot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     kind: Mapped[str] = mapped_column(String(16))  # genesis | build
     ref: Mapped[str] = mapped_column(Text)  # backend handle (snapshot path / git sha / branch)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# --------------------------------------------------------------------------
+# MCP server activity (request/response log for the dashboard)
+# --------------------------------------------------------------------------
+
+
+class McpRequest(Base):
+    """One row per MCP tool call: the request (tool + params) and its response.
+
+    Written by apps/mcp on every invocation — success or error — and read by the
+    dashboard's MCP activity view to chart request volume over time and show the
+    raw request/response pairs. Tenant-scoped by ``org_id`` like every other
+    table; ``params_json`` / ``response_json`` are size-capped at write time.
+    """
+
+    __tablename__ = "mcp_requests"
+    __table_args__ = (Index("ix_mcp_requests_org_time", "org_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    org_id: Mapped[str] = mapped_column(String(64))
+    tool: Mapped[str] = mapped_column(String(64))  # context_research | context_get_urls | …
+    params_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16))  # ok | error
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

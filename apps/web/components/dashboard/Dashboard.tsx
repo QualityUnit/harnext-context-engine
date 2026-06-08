@@ -3,12 +3,21 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { api, fetcher, type Analytics, type Project, type Source } from "@/lib/api";
+import {
+  api,
+  fetcher,
+  type Analytics,
+  type McpRequest,
+  type McpStats,
+  type Project,
+  type Source,
+} from "@/lib/api";
 import { clearSession, useUser } from "@/lib/auth";
 import { toWs } from "@/lib/workspace";
 import { Sidebar, type View } from "@/components/dashboard/Sidebar";
 import { SourcesView } from "@/components/dashboard/SourcesView";
 import { ConnectView } from "@/components/dashboard/ConnectView";
+import { MCPView } from "@/components/dashboard/MCPView";
 import { SettingsView } from "@/components/dashboard/SettingsView";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -32,6 +41,17 @@ export function Dashboard({ id }: { id: string }) {
   const analytics = useSWR<Analytics>(user ? `/projects/${id}/analytics` : null, fetcher, {
     refreshInterval: 8000,
   });
+  // MCP activity is only polled while its view is open.
+  const mcpStats = useSWR<McpStats>(
+    user && view === "mcp" ? `/projects/${id}/mcp-requests/stats` : null,
+    fetcher,
+    { refreshInterval: 5000 },
+  );
+  const mcpRequests = useSWR<McpRequest[]>(
+    user && view === "mcp" ? `/projects/${id}/mcp-requests?limit=100` : null,
+    fetcher,
+    { refreshInterval: 5000 },
+  );
 
   // Surface the OAuth callback result (?connected / ?error), then clean the URL.
   useEffect(() => {
@@ -169,6 +189,12 @@ export function Dashboard({ id }: { id: string }) {
             />
           ) : view === "connect" ? (
             <ConnectView project={project.data} sources={srcList} />
+          ) : view === "mcp" ? (
+            <MCPView
+              project={project.data}
+              requests={mcpRequests.data ?? []}
+              stats={mcpStats.data}
+            />
           ) : (
             <SettingsView
               project={project.data}

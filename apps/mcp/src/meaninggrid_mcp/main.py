@@ -12,7 +12,9 @@ over an org's AgentFS + conversation log:
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -21,7 +23,8 @@ from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.dependencies import get_access_token
 from meaninggrid_shared import decode_mcp_token
 
-from meaninggrid_mcp.context import get_resources
+from meaninggrid_mcp.activity import record_request
+from meaninggrid_mcp.context import Resources, get_resources
 from meaninggrid_mcp.conversation import conversation_url, get_conversation_payload
 from meaninggrid_mcp.research import research
 from meaninggrid_mcp.settings import MCPSettings
@@ -58,23 +61,56 @@ def _org() -> str:
     return token.client_id
 
 
+async def _logged(
+    tool: str,
+    params: dict[str, Any],
+    run: Callable[[Resources, str], Awaitable[Any]],
+) -> Any:
+    """Run a tool's body and record the request/response pair for the dashboard.
+
+    The outcome (ok/error), latency, and serialized request + response are
+    persisted to the MCP request log; recording is best-effort and never alters
+    the call's own success or failure."""
+    res = await get_resources()
+    org = _org()
+    t0 = time.monotonic()
+    try:
+        out = await run(res, org)
+    except Exception as e:
+        await record_request(
+            res.sm, org_id=org, tool=tool, params=params, status="error",
+            response=None, error=str(e), duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+        raise
+    await record_request(
+        res.sm, org_id=org, tool=tool, params=params, status="ok",
+        response=out, error=None, duration_ms=int((time.monotonic() - t0) * 1000),
+    )
+    return out
+
+
 @mcp.tool
 async def context_research(question: str) -> dict[str, Any]:
     """Search the organization's context and return a synthesized, cited answer.
 
     The answer is drawn only from the org's stored context (its events, files,
     and prior agent work). Use this to pull the right context before acting."""
-    res = await get_resources()
-    return await research(res.store, res.builder_settings, _org(), question)
+    return await _logged(
+        "context_research",
+        {"question": question},
+        lambda res, org: research(res.store, res.builder_settings, org, question),
+    )
 
 
 @mcp.tool
 async def context_get_urls(urls: list[str]) -> list[dict[str, Any]]:
     """Fetch the content behind one or more context URLs (e.g. the
     cms://conversation/<id> URLs returned by context_update)."""
-    res = await get_resources()
-    org = _org()
-    return [await get_conversation_payload(res.sm, org, u) for u in urls]
+
+    async def run(res: Resources, org: str) -> list[dict[str, Any]]:
+        return [await get_conversation_payload(res.sm, org, u) for u in urls]
+
+    return await _logged("context_get_urls", {"urls": urls}, run)
 
 
 @mcp.tool
@@ -82,18 +118,27 @@ async def context_update(instruction: str, context: str | None = None) -> dict[s
     """Apply an instruction to the organization's context store. Spawns an
     internal write agent that incorporates the instruction (and optional context)
     into the store, returning a URL for the resulting conversation."""
-    res = await get_resources()
-    full = instruction if not context else f"{instruction}\n\nCaller-provided context:\n{context}"
-    outcome = await res.build_runner.run_update(_org(), full, uuid.uuid4().hex)
-    return {
-        "status": outcome.status.value,
-        "build_id": outcome.build_id,
-        "snapshot_id": outcome.snapshot_id,
-        "conversation_url": (
-            conversation_url(outcome.conversation_id) if outcome.conversation_id else None
-        ),
-        "error": outcome.error,
-    }
+
+    async def run(res: Resources, org: str) -> dict[str, Any]:
+        full = (
+            instruction
+            if not context
+            else f"{instruction}\n\nCaller-provided context:\n{context}"
+        )
+        outcome = await res.build_runner.run_update(org, full, uuid.uuid4().hex)
+        return {
+            "status": outcome.status.value,
+            "build_id": outcome.build_id,
+            "snapshot_id": outcome.snapshot_id,
+            "conversation_url": (
+                conversation_url(outcome.conversation_id) if outcome.conversation_id else None
+            ),
+            "error": outcome.error,
+        }
+
+    return await _logged(
+        "context_update", {"instruction": instruction, "context": context}, run
+    )
 
 
 def run() -> None:
