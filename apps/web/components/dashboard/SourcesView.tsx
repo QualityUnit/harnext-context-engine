@@ -265,7 +265,10 @@ function AddSourceModal({
                     ))}
                   </select>
                 </div>
-                <p className="modal-note">Connected as @{project.github_login}. We index the default branch.</p>
+                <p className="modal-note">
+                  Connected as @{project.github_login}. We index the default branch and set up real-time
+                  updates automatically — no GitHub settings to touch.
+                </p>
               </>
             ) : (
               <>
