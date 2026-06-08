@@ -36,6 +36,11 @@ from meaninggrid_ingest.connectors.base import FetchResult, PollingConnector
 
 log = logging.getLogger("ingest.connectors.youtube")
 
+# Channel sub-pages that are already a concrete listing — a channel_url ending in
+# one of these (or pointing at a playlist/video) is used as given; anything else
+# (a bare channel root) gets the uploads tab appended.
+_YT_TABS = ("videos", "shorts", "streams", "live", "playlists", "featured", "community", "about")
+
 # Caption languages tried in order before falling back to any available track.
 DEFAULT_LANGS = ("en", "en-US", "en-GB", "en-orig")
 # Caption formats we know how to parse, best (cleanest to parse) first.
@@ -74,15 +79,22 @@ def _extract_info(url: str, *, flat: bool, limit: int | None = None) -> dict[str
 
 
 def _channel_videos_url(config: dict[str, Any]) -> str:
-    """Resolve the channel's Videos-tab URL from the source config.
+    """Resolve the channel's uploads (Videos-tab) URL from the source config.
 
-    Accepts an explicit ``channel_url`` (used verbatim — covers ``/user/`` and
-    ``/c/`` legacy URLs), or a ``channel_id`` that is a ``UC…`` channel id or an
-    ``@handle`` (a bare handle is treated as ``@handle``).
+    A ``channel_url`` is normalized to ``…/videos`` unless it already targets a
+    specific tab, playlist, or video. This matters: a bare channel root
+    (``/@handle`` or ``/channel/UC…``) flat-extracts to the channel's *tabs*
+    (Videos, Shorts, …), not its uploads, so it yields no videos. A
+    ``channel_id`` may be a ``UC…`` id or an ``@handle`` (a bare handle is
+    treated as ``@handle``).
     """
-    url = config.get("channel_url")
-    if url:
-        return str(url)
+    raw = config.get("channel_url")
+    if raw:
+        u = str(raw).strip().rstrip("/")
+        last = u.rsplit("/", 1)[-1].lower()
+        if last in _YT_TABS or "list=" in u or "/watch" in u or "/playlist" in u:
+            return u  # already a concrete listing — use as given
+        return f"{u}/videos"
     ident = str(config["channel_id"])
     if ident.startswith("@"):
         return f"https://www.youtube.com/{ident}/videos"

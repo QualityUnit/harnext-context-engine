@@ -696,7 +696,26 @@ async def test_discord_source_uses_bot_token(tmp_path):
 def test_youtube_channel_url_resolution():
     from meaninggrid_ingest.connectors.youtube import _channel_videos_url
 
-    assert _channel_videos_url({"channel_url": "https://x/y"}) == "https://x/y"
+    # a bare channel URL is normalized to the uploads (Videos) tab — extracting
+    # the channel root instead returns its tabs (Videos/Shorts/…), not videos
+    assert (
+        _channel_videos_url({"channel_url": "https://www.youtube.com/@FlowHunt"})
+        == "https://www.youtube.com/@FlowHunt/videos"
+    )
+    assert (
+        _channel_videos_url({"channel_url": "https://www.youtube.com/channel/UC123/"})
+        == "https://www.youtube.com/channel/UC123/videos"
+    )
+    # a URL that already targets a tab / playlist / video is left as given
+    assert (
+        _channel_videos_url({"channel_url": "https://www.youtube.com/@FlowHunt/videos"})
+        == "https://www.youtube.com/@FlowHunt/videos"
+    )
+    assert (
+        _channel_videos_url({"channel_url": "https://www.youtube.com/playlist?list=PL1"})
+        == "https://www.youtube.com/playlist?list=PL1"
+    )
+    # channel_id forms
     assert (
         _channel_videos_url({"channel_id": "@handle"}) == "https://www.youtube.com/@handle/videos"
     )
