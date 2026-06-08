@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps install topics ingest classifier builder mcp web fmt lint typecheck test clean
+.PHONY: help up down logs ps install topics ingest crawler classifier builder mcp web fmt lint typecheck test clean
 
 help:
 	@echo "Infra:"
@@ -10,6 +10,7 @@ help:
 	@echo ""
 	@echo "Dev (run each in its own shell):"
 	@echo "  make ingest     — Ingest API + connectors (FastAPI) on :8000"
+	@echo "  make crawler    — Celery worker: sitemap crawl tasks (needs Redis)"
 	@echo "  make classifier — fast/batch router"
 	@echo "  make builder    — AgentFS builder consumer"
 	@echo "  make mcp         — MCP context server on :8765"
@@ -44,6 +45,9 @@ install:
 
 ingest:
 	uv run --package meaninggrid-ingest uvicorn meaninggrid_ingest.main:app --reload --host 0.0.0.0 --port 8000
+
+crawler:
+	uv run --package meaninggrid-ingest celery -A meaninggrid_ingest.celery_app worker --loglevel=info
 
 classifier:
 	uv run --package meaninggrid-classifier python -m meaninggrid_classifier.main

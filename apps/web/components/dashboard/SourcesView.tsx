@@ -53,8 +53,15 @@ function SourceCard({
 
   const st = uiStatus(s);
   const meta = STATUS[st];
-  const TypeIcon = s.kind === "github" ? Icon.github : s.kind === "discord" ? Icon.discord : Icon.slack;
-  const noun = s.kind === "github" ? "repository" : "channel";
+  const TypeIcon =
+    s.kind === "github"
+      ? Icon.github
+      : s.kind === "discord"
+        ? Icon.discord
+        : s.kind === "sitemap"
+          ? Icon.globe
+          : Icon.slack;
+  const noun = s.kind === "github" ? "repository" : s.kind === "sitemap" ? "website" : "channel";
   const watching = st === "live";
 
   return (
@@ -142,10 +149,11 @@ function AddSourceModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [step, setStep] = useState<"pick" | "github" | "slack" | "discord">("pick");
+  const [step, setStep] = useState<"pick" | "github" | "slack" | "discord" | "sitemap">("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
   const [channel, setChannel] = useState("");
+  const [sitemapUrl, setSitemapUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -170,7 +178,7 @@ function AddSourceModal({
   const discordOauth = !!health.data?.oauth.discord;
 
   async function connect(
-    kind: "github" | "slack" | "discord",
+    kind: "github" | "slack" | "discord" | "sitemap",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -209,7 +217,9 @@ function AddSourceModal({
         ? "Connect a GitHub repo"
         : step === "slack"
           ? "Connect a Slack channel"
-          : "Connect a Discord channel";
+          : step === "discord"
+            ? "Connect a Discord channel"
+            : "Crawl a website";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -263,12 +273,24 @@ function AddSourceModal({
                   <Icon.chevronR size={15} />
                 </span>
               </button>
+              <button className="pick-card" onClick={() => setStep("sitemap")}>
+                <span className="src-ic sitemap lg">
+                  <Icon.globe size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">Website (sitemap)</span>
+                  <span className="pick-sub">Crawl pages from a sitemap.xml</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
               <button className="pick-card soon" disabled>
                 <span className="src-ic ghost lg">
                   <Icon.plus size={22} />
                 </span>
                 <span>
-                  <span className="pick-name">Linear · Notion · Web</span>
+                  <span className="pick-name">Linear · Notion · Jira</span>
                   <span className="pick-sub">Coming soon</span>
                 </span>
               </button>
@@ -539,6 +561,42 @@ function AddSourceModal({
             )}
           </div>
         )}
+
+        {step === "sitemap" && (
+          <div className="modal-body">
+            <label className="field-label">Sitemap URL</label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.globe size={15} />
+              </span>
+              <input
+                autoFocus
+                value={sitemapUrl}
+                onChange={(e) => setSitemapUrl(e.target.value)}
+                placeholder="https://example.com/sitemap.xml"
+              />
+            </div>
+            <p className="modal-note">
+              We read the sitemap (following a sitemap index), then politely crawl its pages —
+              rate-limited, <code className="ic">robots.txt</code>-aware, freshest pages first. Each
+              sync re-crawls only pages whose <code className="ic">lastmod</code> changed.
+            </p>
+            {err && <p className="modal-err">{err}</p>}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setStep("pick")}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy || !sitemapUrl.trim()}
+                onClick={() => connect("sitemap", { sitemap_url: sitemapUrl.trim() })}
+              >
+                <Icon.plus size={15} />
+                {busy ? "Crawling…" : "Crawl website"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -655,7 +713,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub repo, Slack or Discord channel</span>
+          <span className="add-sub">GitHub repo, Slack/Discord channel or a website</span>
         </button>
       </div>
 

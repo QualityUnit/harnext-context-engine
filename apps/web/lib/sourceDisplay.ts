@@ -23,6 +23,14 @@ export const cfg = (s: Source, k: string): string => {
 
 export function sourceName(s: Source): string {
   if (s.kind === "github") return cfg(s, "repo") || "repository";
+  if (s.kind === "sitemap") {
+    const url = cfg(s, "site") || cfg(s, "sitemap_url");
+    try {
+      return url ? new URL(url).hostname : "website";
+    } catch {
+      return url || "website";
+    }
+  }
   return cfg(s, "channel_name") ? `#${cfg(s, "channel_name")}` : cfg(s, "channel_id") || "channel";
 }
 

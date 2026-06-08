@@ -1,7 +1,7 @@
 [project]
 name = "meaninggrid-ingest"
 version = "0.1.0"
-description = "Source registration API + connectors (GitHub, Slack, Discord) → CloudEvents → Kafka raw topic."
+description = "Source registration API + connectors (GitHub, Slack, Discord, Sitemap) → CloudEvents → Kafka raw topic."
 requires-python = ">=3.12"
 dependencies = [
     "meaninggrid-shared",
@@ -15,6 +15,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "bcrypt>=4.2",
     "pyjwt>=2.9",
+    "celery[redis]>=5.4",
 ]
 
 [project.scripts]

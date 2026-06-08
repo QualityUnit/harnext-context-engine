@@ -47,6 +47,13 @@ export const Icon = {
       <path d="m2 12 10 5 10-5" />
     </Svg>
   ),
+  globe: (p: P) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
+    </Svg>
+  ),
   connect: (p: P) => (
     <Svg {...p}>
       <polyline points="4 17 10 11 4 5" />

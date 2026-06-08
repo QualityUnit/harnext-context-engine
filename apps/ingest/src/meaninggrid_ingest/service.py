@@ -383,12 +383,25 @@ class SourceService:
             await s.commit()
             return True
 
+    def _connector(self, kind: str):
+        """Build a connector for ``kind``, threading in the relevant settings.
+
+        Sitemap needs the deployment's crawl budget, so it's built from settings
+        rather than the registry's bare defaults; everything else goes through the
+        registry. (Tests monkeypatch ``get_connector`` for the non-sitemap kinds.)
+        """
+        if kind == "sitemap":
+            from meaninggrid_ingest.connectors.sitemap import SitemapConnector
+
+            return SitemapConnector.from_settings(self.s)
+        return get_connector(kind, github_per_page=self.s.github_per_page)
+
     async def sync(self, source_id: str) -> int:
         src = await self.get_source(source_id)
         if src is None:
             raise KeyError(source_id)
 
-        connector = get_connector(src.kind, github_per_page=self.s.github_per_page)
+        connector = self._connector(src.kind)
         try:
             result = await connector.fetch(
                 org_id=src.org_id,
@@ -437,6 +450,36 @@ class SourceService:
             if src:
                 src.status = "error"
                 src.last_error = error[:2000]
+                await s.commit()
+
+    async def record_event(self, source_id: str, ev: CloudEvent) -> bool:
+        """Produce one event to the raw topic + record it as ingested, and stamp
+        the source as freshly synced. Unlike :meth:`sync` this does *not* touch the
+        cursor — it's the per-page write used by the Celery crawl fan-out, where
+        the cursor is advanced once up front by ``crawl_sitemap``. Returns False if
+        the source vanished mid-crawl (deleted)."""
+        src = await self.get_source(source_id)
+        if src is None:
+            return False
+        await self.producer.send_event(RAW_EVENTS_TOPIC, ev)
+        await self._record_ingested(src, ev)
+        async with self.sm() as s:
+            row = await s.get(Source, source_id)
+            if row:
+                row.last_sync_at = utcnow()
+                row.status = "active"
+                row.last_error = None
+                await s.commit()
+        return True
+
+    async def set_cursor(self, source_id: str, cursor: str | None) -> None:
+        """Advance a source's incremental watermark without producing events —
+        called by ``crawl_sitemap`` after it plans (and enqueues) a sync so a
+        concurrent poll won't re-discover the same pages."""
+        async with self.sm() as s:
+            src = await s.get(Source, source_id)
+            if src:
+                src.cursor = cursor
                 await s.commit()
 
     async def ingest_slack_event(self, team_id: str | None, ev: dict) -> int:

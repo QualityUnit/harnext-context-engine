@@ -53,3 +53,25 @@ class IngestSettings(BaseSettings):
 
     # Per-sync page sizes (keep first syncs bounded for the MVP).
     github_per_page: int = 30
+
+    # -- Sitemap connector / web crawler -----------------------------------
+    # Politeness budget for the website crawler so a connected site is never
+    # overwhelmed. Per-source overrides may be passed in the source config.
+    # The Celery crawler covers ALL pages (throttled by crawl_rate_limit);
+    # crawl_max_pages bounds only the inline-sync connection test (oldest-first).
+    crawl_max_pages: int = 50  # inline-sync page cap; Celery fan-out is uncapped
+    crawl_delay_seconds: float = 1.0  # pause before each page request
+    crawl_concurrency: int = 4  # max simultaneous in-flight requests (inline path)
+    crawl_timeout_seconds: float = 20.0  # per-request timeout
+    crawl_max_bytes: int = 2_000_000  # response body read cap
+    crawl_respect_robots: bool = True  # honour robots.txt (skip disallowed pages)
+    crawl_user_agent: str = "MeaningGridBot/1.0 (+https://meaninggrid.dev/bot)"
+    # Celery per-worker ceiling for the fan-out crawl_url task (e.g. "30/m").
+    # The hard guarantee a sitemap with thousands of URLs can't flood the origin.
+    crawl_rate_limit: str = "30/m"
+
+    # -- Celery (distributed crawl scheduling) -----------------------------
+    # Shared with the polling scheduler. Redis broker by default; the worker is
+    # `celery -A meaninggrid_ingest.celery_app worker`.
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
