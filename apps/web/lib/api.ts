@@ -38,6 +38,16 @@ export interface Source {
   last_error: string | null;
   created_at: string;
   has_secret: boolean;
+  event_count: number;
+}
+
+export interface Analytics {
+  events_per_day: number[];
+  total_events: number;
+  total_builds: number;
+  context_bytes: number;
+  sources_live: number;
+  days: number;
 }
 
 export interface IngestedEvent {
@@ -113,6 +123,11 @@ export const api = {
   listProjects: () => req<Project[]>("/projects"),
   getProject: (id: string) => req<Project>(`/projects/${id}`),
   deleteProject: (id: string) => req<unknown>(`/projects/${id}`, { method: "DELETE" }),
+  renameProject: (id: string, name: string) =>
+    req<Project>(`/projects/${id}`, { ...json({ name }), method: "PATCH" }),
+  getAnalytics: (id: string) => req<Analytics>(`/projects/${id}/analytics`),
+  disconnectProvider: (id: string, provider: string) =>
+    req<unknown>(`/projects/${id}/integrations/${provider}`, { method: "DELETE" }),
 
   oauthStartUrl: (provider: string, projectId: string) =>
     `${API_BASE}/oauth/${provider}/start?project_id=${projectId}`,

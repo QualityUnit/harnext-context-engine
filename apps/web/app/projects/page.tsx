@@ -1,78 +1,72 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import Link from "next/link";
 import { api, fetcher, type Project } from "@/lib/api";
-import { useUser } from "@/lib/auth";
-import { Badge, Button, Card, Field, inputCls } from "@/components/ui";
+import { clearSession, useUser } from "@/lib/auth";
+import { Icon } from "@/components/DashIcons";
 
-export default function ProjectsPage() {
+export default function ProjectsIndexPage() {
   const user = useUser();
+  const router = useRouter();
   const { data: projects, mutate } = useSWR<Project[]>(user ? "/projects" : null, fetcher);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (!user) return null; // loading or redirecting to /login
+  // Once projects load, hop straight into the first one's dashboard.
+  useEffect(() => {
+    if (projects && projects.length > 0) router.replace(`/projects/${projects[0].id}`);
+  }, [projects, router]);
+
+  if (!user) return null;
+  if (!projects) return <div className="firstrun" />;
+  if (projects.length > 0) return <div className="firstrun" />; // redirecting
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await api.createProject(name.trim());
-      setName("");
-      mutate();
+      const p = await api.createProject(name.trim());
+      await mutate();
+      router.replace(`/projects/${p.id}`);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <Card title="New project">
-        <form onSubmit={create} className="flex items-end gap-3">
-          <div className="flex-1">
-            <Field label="Project name">
-              <input
-                className={inputCls}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Acme engineering"
-              />
-            </Field>
+    <div className="firstrun">
+      <div className="firstrun-card">
+        <div className="brand" style={{ padding: 0, marginBottom: 18 }}>
+          <span className="brand-mark">
+            <span className="brand-grid" />
+          </span>
+          <span className="brand-name">MeaningGrid</span>
+          <span className="brand-badge">OSS</span>
+          <button className="user-logout" style={{ marginLeft: "auto" }} title="Log out" onClick={() => { clearSession(); router.replace("/login"); }}>
+            <Icon.logout size={15} />
+          </button>
+        </div>
+        <h1 className="view-title">Create your first project</h1>
+        <p className="view-desc" style={{ marginBottom: 18 }}>
+          A project is one context grid — connect GitHub or Slack and your agents query it over MCP.
+        </p>
+        <form onSubmit={create}>
+          <label className="field-label">Project name</label>
+          <div className="field">
+            <span className="field-ic">
+              <Icon.sources size={15} />
+            </span>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="acme-engineering" />
           </div>
-          <Button type="submit" disabled={busy}>
+          <button className="btn primary lg" type="submit" disabled={busy || !name.trim()} style={{ marginTop: 16, width: "100%", justifyContent: "center" }}>
+            <Icon.plus size={16} />
             {busy ? "Creating…" : "Create project"}
-          </Button>
+          </button>
         </form>
-      </Card>
-
-      <Card title="Your projects">
-        {!projects?.length ? (
-          <p className="text-sm text-neutral-500">
-            No projects yet. Create one above, then connect GitHub or Slack.
-          </p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-neutral-800">
-            {projects.map((p) => (
-              <li key={p.id}>
-                <Link
-                  href={`/projects/${p.id}`}
-                  className="flex items-center justify-between py-3 transition hover:opacity-80"
-                >
-                  <span className="font-medium">{p.name}</span>
-                  <span className="flex items-center gap-2">
-                    {p.github_connected && <Badge value="github" />}
-                    {p.slack_connected && <Badge value="slack" />}
-                    <span className="text-neutral-600">→</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      </div>
     </div>
   );
 }
