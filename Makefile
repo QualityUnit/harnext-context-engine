@@ -14,7 +14,7 @@ help:
 	@echo "  make builder    — AgentFS builder consumer"
 	@echo "  make mcp         — MCP context server on :8765"
 	@echo "  make web        — Next.js source-connection UI on :3100"
-	@echo "  make worker     — Celery worker (runs source polls)"
+	@echo "  make worker     — Celery worker (source polls + sitemap crawl)"
 	@echo "  make beat       — Celery beat (schedules polls every minute)"
 	@echo ""
 	@echo "Quality:"

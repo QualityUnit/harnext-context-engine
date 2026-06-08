@@ -58,6 +58,21 @@ def poll_source(source_id: str) -> dict:
 async def _poll_source(source_id: str) -> int:
     s = IngestSettings()
     engine = make_engine(s.database_url)
+    try:
+        svc = SourceService(make_sessionmaker(engine), _NoProducer(), s)
+        src = await svc.get_source(source_id)
+        if src is not None and src.kind == "sitemap":
+            # Sitemaps are crawled via the dedicated fan-out (every page, one
+            # rate-limited task each) rather than the bounded inline fetch, so a
+            # scheduled poll covers the whole site. Hand off and return.
+            from meaninggrid_ingest.crawler import crawl_sitemap
+
+            crawl_sitemap.delay(source_id)  # pyright: ignore[reportFunctionMemberAccess]
+            return 0
+    finally:
+        await engine.dispose()
+
+    engine = make_engine(s.database_url)
     producer = Producer(s.kafka_bootstrap_servers)
     await producer.start()
     try:

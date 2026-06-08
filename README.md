@@ -15,7 +15,7 @@ supersede knowledge in a filesystem.
 ## Architecture
 
 ```
-GitHub / Slack / Discord / LiveAgent
+GitHub / Slack / Discord / LiveAgent / YouTube / Website (sitemap)
    │  connector → CloudEvents v1.0  (subject = entity key, mgtenant = org)
    ▼
 apps/ingest ──► Kafka: cms.events.raw.v1
@@ -79,8 +79,26 @@ Then open the dashboard at **`http://localhost:3100`**:
 2. **Create a project** — this is a tenant; its id is the `mgtenant` used throughout.
 3. **Connect a source** — *Connect GitHub* / *Connect Slack* / *Connect Discord* (OAuth),
    or use *advanced: add manually* to add a public repo with no setup. Pick a repo/channel.
+   For a docs site or blog, pick **Website (sitemap)** and paste its `sitemap.xml` URL.
 4. **Sync now** — events flow ingest → classify → build, and the *Recent events*
    and *Context builds* panels light up.
+
+The **Website (sitemap)** source crawls *every* page listed in a `sitemap.xml`
+(it follows a sitemap index, handles gzip, reads `<lastmod>`, and re-crawls only
+pages whose `<lastmod>` advanced). Crawling is deliberately polite so a connected
+site is never overwhelmed — but completeness comes from rate-limiting, **not** from
+dropping pages:
+
+- The **Celery** crawler (`make crawler`, needs Redis) is the full-coverage path:
+  it discovers all new/changed pages and fans out **one rate-limited task per
+  URL**, so the whole site is covered at a bounded request rate.
+- A dashboard **Sync** crawls inline as a quick connection test — bounded to
+  `CRAWL_MAX_PAGES` per call (oldest-first), honouring `robots.txt`, with a
+  concurrency cap and per-request delay.
+
+The incremental cursor only advances past pages a poll *fully* crawled, so a
+bounded poll resumes the rest next time instead of skipping the tail. Tune the
+budget with the `CRAWL_*` vars in `.env.example`.
 
 ### Auth + Google sign-in setup
 
@@ -130,7 +148,7 @@ incorporates both into `data/agentfs/.agentfs/acme.db`.
 | Path | What |
 |------|------|
 | `packages/shared` | CloudEvent envelope, ContextUnit, topics, DB models, session helpers |
-| `apps/ingest` | source registry API + GitHub/Slack/Discord/LiveAgent connectors → raw topic |
+| `apps/ingest` | source registry API + GitHub/Slack/Discord/LiveAgent/YouTube/Sitemap connectors (+ Celery crawler) → raw topic |
 | `apps/classifier` | fast/batch routing (rules + anomaly) + batch windowing |
 | `apps/builder` | the builder: AgentFS store, harness, build runner, Kafka consumers |
 | `apps/mcp` | the external MCP surface (research / get_urls / update) |

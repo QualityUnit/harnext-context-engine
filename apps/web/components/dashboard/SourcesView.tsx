@@ -64,9 +64,17 @@ function SourceCard({
           ? Icon.liveagent
           : s.kind === "youtube"
             ? Icon.youtube
-            : Icon.slack;
+            : s.kind === "sitemap"
+              ? Icon.globe
+              : Icon.slack;
   const noun =
-    s.kind === "github" ? "repository" : s.kind === "liveagent" ? "department" : "channel";
+    s.kind === "github"
+      ? "repository"
+      : s.kind === "liveagent"
+        ? "department"
+        : s.kind === "sitemap"
+          ? "website"
+          : "channel";
   const watching = st === "live";
 
   return (
@@ -155,7 +163,7 @@ function AddSourceModal({
   onAdded: () => void;
 }) {
   const [step, setStep] = useState<
-    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube"
+    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap"
   >("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
@@ -167,6 +175,7 @@ function AddSourceModal({
   const [laConnected, setLaConnected] = useState(project.liveagent_connected);
   const [ytUrl, setYtUrl] = useState("");
   const [ytName, setYtName] = useState("");
+  const [sitemapUrl, setSitemapUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -215,7 +224,7 @@ function AddSourceModal({
   }
 
   async function connect(
-    kind: "github" | "slack" | "discord" | "liveagent" | "youtube",
+    kind: "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -268,7 +277,9 @@ function AddSourceModal({
             ? "Connect a Discord channel"
             : step === "liveagent"
               ? "Connect a LiveAgent department"
-              : "Add a YouTube channel";
+              : step === "youtube"
+                ? "Add a YouTube channel"
+                : "Crawl a website";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -346,12 +357,24 @@ function AddSourceModal({
                   <Icon.chevronR size={15} />
                 </span>
               </button>
+              <button className="pick-card" onClick={() => setStep("sitemap")}>
+                <span className="src-ic sitemap lg">
+                  <Icon.globe size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">Website (sitemap)</span>
+                  <span className="pick-sub">Crawl pages from a sitemap.xml</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
               <button className="pick-card soon" disabled>
                 <span className="src-ic ghost lg">
                   <Icon.plus size={22} />
                 </span>
                 <span>
-                  <span className="pick-name">Linear · Notion · Web</span>
+                  <span className="pick-name">Linear · Notion · Jira</span>
                   <span className="pick-sub">Coming soon</span>
                 </span>
               </button>
@@ -814,6 +837,42 @@ function AddSourceModal({
             </div>
           </div>
         )}
+
+        {step === "sitemap" && (
+          <div className="modal-body">
+            <label className="field-label">Sitemap URL</label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.globe size={15} />
+              </span>
+              <input
+                autoFocus
+                value={sitemapUrl}
+                onChange={(e) => setSitemapUrl(e.target.value)}
+                placeholder="https://example.com/sitemap.xml"
+              />
+            </div>
+            <p className="modal-note">
+              We read the sitemap (following a sitemap index), then politely crawl its pages —
+              rate-limited and <code className="ic">robots.txt</code>-aware. Each sync re-crawls
+              only pages whose <code className="ic">lastmod</code> changed.
+            </p>
+            {err && <p className="modal-err">{err}</p>}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setStep("pick")}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy || !sitemapUrl.trim()}
+                onClick={() => connect("sitemap", { sitemap_url: sitemapUrl.trim() })}
+              >
+                <Icon.plus size={15} />
+                {busy ? "Crawling…" : "Crawl website"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -930,7 +989,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub, Slack, Discord, LiveAgent or YouTube</span>
+          <span className="add-sub">GitHub, Slack, Discord, LiveAgent, YouTube or a website</span>
         </button>
       </div>
 

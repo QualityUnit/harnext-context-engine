@@ -30,6 +30,14 @@ export function sourceName(s: Source): string {
   }
   if (s.kind === "youtube")
     return cfg(s, "channel_name") || cfg(s, "channel_id") || cfg(s, "channel_url") || "channel";
+  if (s.kind === "sitemap") {
+    const url = cfg(s, "site") || cfg(s, "sitemap_url");
+    try {
+      return url ? new URL(url).hostname : "website";
+    } catch {
+      return url || "website";
+    }
+  }
   return cfg(s, "channel_name") ? `#${cfg(s, "channel_name")}` : cfg(s, "channel_id") || "channel";
 }
 
