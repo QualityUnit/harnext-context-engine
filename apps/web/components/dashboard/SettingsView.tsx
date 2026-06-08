@@ -77,7 +77,10 @@ const PROVIDERS = {
   github: { name: "GitHub", noun: "repositories", scope: "repo · read" },
   slack: { name: "Slack", noun: "channels", scope: "channels:history" },
   discord: { name: "Discord", noun: "channels", scope: "Read Message History" },
+  youtube: { name: "YouTube", noun: "channels", scope: "public captions" },
 } as const;
+
+type ProviderKind = keyof typeof PROVIDERS;
 
 function IntegrationCard({
   kind,
@@ -86,15 +89,21 @@ function IntegrationCard({
   onRemove,
   onDisconnect,
 }: {
-  kind: "github" | "slack" | "discord";
+  kind: ProviderKind;
   account: string;
   sources: Source[];
   onRemove: (id: string) => void;
-  onDisconnect: (kind: "github" | "slack" | "discord") => void;
+  onDisconnect: (kind: ProviderKind) => void;
 }) {
   const p = PROVIDERS[kind];
   const TypeIcon =
-    kind === "github" ? Icon.github : kind === "slack" ? Icon.slack : Icon.discord;
+    kind === "github"
+      ? Icon.github
+      : kind === "slack"
+        ? Icon.slack
+        : kind === "discord"
+          ? Icon.discord
+          : Icon.youtube;
   return (
     <div className="int-card">
       <div className="int-head">
@@ -161,14 +170,17 @@ function IntegrationSettings({
   project: Project;
   sources: Source[];
   onRemove: (id: string) => void;
-  onDisconnect: (kind: "github" | "slack" | "discord") => void;
+  onDisconnect: (kind: ProviderKind) => void;
 }) {
   const gh = sources.filter((s) => s.kind === "github");
   const sl = sources.filter((s) => s.kind === "slack");
   const dc = sources.filter((s) => s.kind === "discord");
+  const yt = sources.filter((s) => s.kind === "youtube");
   const showGh = project.github_connected || gh.length > 0;
   const showSl = project.slack_connected || sl.length > 0;
   const showDc = project.discord_connected || dc.length > 0;
+  // YouTube has no OAuth "connected" state — surface it once it has sources.
+  const showYt = yt.length > 0;
 
   return (
     <div className="set-stack">
@@ -204,10 +216,19 @@ function IntegrationSettings({
           onDisconnect={onDisconnect}
         />
       )}
-      {!showGh && !showSl && !showDc && (
+      {showYt && (
+        <IntegrationCard
+          kind="youtube"
+          account=""
+          sources={yt}
+          onRemove={onRemove}
+          onDisconnect={onDisconnect}
+        />
+      )}
+      {!showGh && !showSl && !showDc && !showYt && (
         <div className="int-empty big">
-          No integrations connected. Add a source from the Sources view to connect GitHub, Slack or
-          Discord.
+          No integrations connected. Add a source from the Sources view to connect GitHub, Slack,
+          Discord or YouTube.
         </div>
       )}
 
@@ -250,7 +271,7 @@ export function SettingsView({
   sources: Source[];
   onRename: (name: string) => void;
   onRemoveSource: (id: string) => void;
-  onDisconnect: (kind: "github" | "slack" | "discord") => void;
+  onDisconnect: (kind: ProviderKind) => void;
   onDelete: () => void;
 }) {
   const [tab, setTab] = useState<"general" | "integrations">("general");
