@@ -54,6 +54,14 @@ class IngestSettings(BaseSettings):
     # Per-sync page sizes (keep first syncs bounded for the MVP).
     github_per_page: int = 30
 
+    # Polling scheduler (Celery + Redis). Beat ticks every poll_beat_interval_seconds;
+    # each tick claims sources whose last check is >= their interval ago (default
+    # poll_default_interval_seconds) and enqueues a poll. Redis is the broker/backend
+    # (shared by the website crawl tasks below).
+    redis_url: str = "redis://localhost:6379/0"
+    poll_default_interval_seconds: int = 3600
+    poll_beat_interval_seconds: int = 60
+
     # -- Sitemap connector / web crawler -----------------------------------
     # Politeness budget for the website crawler so a connected site is never
     # overwhelmed. Per-source overrides may be passed in the source config.
@@ -69,9 +77,3 @@ class IngestSettings(BaseSettings):
     # Celery per-worker ceiling for the fan-out crawl_url task (e.g. "30/m").
     # The hard guarantee a sitemap with thousands of URLs can't flood the origin.
     crawl_rate_limit: str = "30/m"
-
-    # -- Celery (distributed crawl scheduling) -----------------------------
-    # Shared with the polling scheduler. Redis broker by default; the worker is
-    # `celery -A meaninggrid_ingest.celery_app worker`.
-    celery_broker_url: str = "redis://localhost:6379/0"
-    celery_result_backend: str = "redis://localhost:6379/1"

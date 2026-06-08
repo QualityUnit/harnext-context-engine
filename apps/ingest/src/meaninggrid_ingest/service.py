@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from meaninggrid_shared import (
@@ -21,6 +21,7 @@ from meaninggrid_shared import (
     McpRequest,
     Project,
     Source,
+    SourcePollState,
     User,
     utcnow,
 )
@@ -187,6 +188,7 @@ class SourceService:
             if proj is None:
                 return False
             for model in (
+                SourcePollState,  # FK → sources; delete before Source
                 Source,
                 IngestedEvent,
                 BuildLedger,
@@ -216,12 +218,15 @@ class SourceService:
             elif kind == "discord":
                 proj.discord_guild_id = None
                 proj.discord_guild_name = None
-            srcs = (
-                await s.execute(
-                    select(Source).where(Source.org_id == project_id, Source.kind == kind)
-                )
-            ).scalars()
+            srcs = list(
+                (
+                    await s.execute(
+                        select(Source).where(Source.org_id == project_id, Source.kind == kind)
+                    )
+                ).scalars()
+            )
             for src in srcs:
+                await s.execute(delete(SourcePollState).where(SourcePollState.source_id == src.id))
                 await s.delete(src)
             await s.commit()
 
@@ -346,7 +351,23 @@ class SourceService:
             await s.refresh(src)
         if kind == "github":
             await self._ensure_github_webhook(proj, str(config.get("repo", "")))
+        await self._ensure_poll_state(src.id, project_id)
         return src
+
+    async def _ensure_poll_state(self, source_id: str, org_id: str) -> None:
+        """Register a source with the polling scheduler. Stamp last_checked_at=now
+        so the first *scheduled* poll is one interval out — the connect-time sync
+        already pulled initial history."""
+        async with self.sm() as s:
+            s.add(
+                SourcePollState(
+                    source_id=source_id,
+                    org_id=org_id,
+                    interval_seconds=self.s.poll_default_interval_seconds,
+                    last_checked_at=utcnow(),
+                )
+            )
+            await s.commit()
 
     async def _ensure_github_webhook(self, proj: Project, repo: str) -> None:
         """One-click real-time: auto-register the repo webhook using the project's
@@ -379,6 +400,7 @@ class SourceService:
             src = await s.get(Source, source_id)
             if src is None:
                 return False
+            await s.execute(delete(SourcePollState).where(SourcePollState.source_id == source_id))
             await s.delete(src)
             await s.commit()
             return True
@@ -395,6 +417,43 @@ class SourceService:
 
             return SitemapConnector.from_settings(self.s)
         return get_connector(kind, github_per_page=self.s.github_per_page)
+
+    async def claim_due_polls(self, now: datetime | None = None) -> list[str]:
+        """Return the ids of active sources due for a poll, stamping each one's
+        ``last_checked_at`` to claim it (so beat won't re-enqueue it for another
+        interval, even if the poll itself is slow or fails). A source with no
+        poll-state row yet — e.g. created before this feature — is due at once."""
+        now = now or utcnow()
+        due: list[str] = []
+        async with self.sm() as s:
+            rows = (
+                await s.execute(
+                    select(Source.id, Source.org_id, SourcePollState)
+                    .join(SourcePollState, SourcePollState.source_id == Source.id, isouter=True)
+                    .where(Source.status == "active")
+                )
+            ).all()
+            for source_id, org_id, st in rows:
+                interval = st.interval_seconds if st else self.s.poll_default_interval_seconds
+                last = st.last_checked_at if st else None
+                if last is not None and last.tzinfo is None:
+                    last = last.replace(tzinfo=UTC)  # SQLite reads DateTime back naive
+                if last is not None and (now - last).total_seconds() < interval:
+                    continue
+                due.append(source_id)
+                if st is None:
+                    s.add(
+                        SourcePollState(
+                            source_id=source_id,
+                            org_id=org_id,
+                            interval_seconds=self.s.poll_default_interval_seconds,
+                            last_checked_at=now,
+                        )
+                    )
+                else:
+                    st.last_checked_at = now
+            await s.commit()
+        return due
 
     async def sync(self, source_id: str) -> int:
         src = await self.get_source(source_id)
