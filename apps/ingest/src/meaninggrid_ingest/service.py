@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Protocol
 
 from meaninggrid_shared import (
@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors import get_connector
 from meaninggrid_ingest.connectors.github import normalize_repo
+from meaninggrid_ingest.connectors.slack import slack_message_event
 from meaninggrid_ingest.security import hash_password, verify_password
 from meaninggrid_ingest.settings import IngestSettings
 
@@ -212,6 +213,9 @@ class SourceService:
                 proj.slack_token = None
                 proj.slack_team_id = None
                 proj.slack_team_name = None
+            elif kind == "discord":
+                proj.discord_guild_id = None
+                proj.discord_guild_name = None
             srcs = (
                 await s.execute(
                     select(Source).where(Source.org_id == project_id, Source.kind == kind)
@@ -297,6 +301,18 @@ class SourceService:
                 proj.slack_token = token
                 await s.commit()
 
+    async def set_discord_guild(
+        self, project_id: str, guild_id: str | None, guild_name: str | None
+    ) -> None:
+        """Record the guild a project's bot was invited to. There is no per-project
+        Discord token — the poller authenticates with the app-level bot token."""
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj:
+                proj.discord_guild_id = guild_id
+                proj.discord_guild_name = guild_name
+                await s.commit()
+
     # -- sources -----------------------------------------------------------
     async def create_source(
         self, project_id: str, kind: str, config: dict, secret: str | None = None
@@ -304,12 +320,16 @@ class SourceService:
         proj = await self.get_project(project_id)
         if proj is None:
             raise KeyError(project_id)
-        if secret is None:  # reuse the project's OAuth token
+        if kind == "discord" and proj.discord_guild_id and not config.get("guild_id"):
+            config = {**config, "guild_id": proj.discord_guild_id}  # server-authoritative guild
+        if secret is None:  # reuse the project/app credential for this kind
             secret = (
                 proj.github_token
                 if kind == "github"
                 else proj.slack_token
                 if kind == "slack"
+                else self.s.discord_bot_token
+                if kind == "discord"
                 else None
             )
         src = Source(
@@ -451,22 +471,7 @@ class SourceService:
                     matches.append((src, conf.get("channel_name", channel_id)))
 
         for src, channel_name in matches:
-            cev = CloudEvent(
-                id=f"slack-{channel_id}-{ts}",
-                source=f"slack:{channel_id}",
-                type="com.slack.message",
-                subject=f"channel:{channel_name}",
-                time=datetime.fromtimestamp(float(ts), tz=UTC),
-                mgtenant=src.org_id,
-                data={
-                    "channel": channel_id,
-                    "channel_name": channel_name,
-                    "user": ev.get("user"),
-                    "text": (ev.get("text") or "")[:1200],
-                    "ts": ts,
-                    "reply_count": ev.get("reply_count", 0),
-                },
-            )
+            cev = slack_message_event(src.org_id, channel_id, channel_name, ev)
             await self.producer.send_event(RAW_EVENTS_TOPIC, cev)
             await self._record_ingested(src, cev)
             await self._mark_synced(src.id, ts)

@@ -106,5 +106,29 @@ async def test_router(tmp_path):
         await engine.dispose()
 
 
+def test_rules_discord():
+    assert (
+        rules_match(
+            _ev("d1", type="com.discord.message", source="discord:G1:CH1",
+                data={"text": "@everyone ping"})
+        )
+        == "rule:discord-mention"
+    )
+    assert (
+        rules_match(
+            _ev("d2", type="com.discord.message", source="discord:G1:CH1",
+                data={"text": "prod outage"})
+        )
+        == "rule:discord-urgent-word"
+    )
+    assert (
+        rules_match(
+            _ev("d3", type="com.discord.message", source="discord:G1:CH1",
+                data={"text": "lunch?"})
+        )
+        is None
+    )
+
+
 async def _collect(units, cu):
     units.append(cu)

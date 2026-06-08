@@ -553,3 +553,140 @@ class _FakeConnector:
 
     async def fetch(self, *, org_id, config, secret, since):
         return FetchResult(events=self._events, cursor=self._cursor)
+
+
+# -- connector taxonomy + Discord ------------------------------------------
+def test_slack_message_event_shape():
+    """The shared chat-message builder must reproduce Slack's exact CloudEvent
+    (the id is an IngestedEvent PK — drift would silently double-ingest)."""
+    from meaninggrid_ingest.connectors.slack import slack_message_event
+
+    m = {"channel": "C1", "user": "U1", "text": "hi", "ts": "1700000000.0001", "reply_count": 2}
+    e = slack_message_event("org1", "C1", "eng", m)
+    assert e.id == "slack-C1-1700000000.0001"
+    assert e.source == "slack:C1"
+    assert e.type == "com.slack.message"
+    assert e.subject == "channel:eng"
+    assert e.mgtenant == "org1"
+    assert e.data == {
+        "channel": "C1",
+        "channel_name": "eng",
+        "text": "hi",
+        "user": "U1",
+        "ts": "1700000000.0001",
+        "reply_count": 2,
+    }
+
+
+def test_event_connector_lookup():
+    from meaninggrid_ingest.connectors import event_connector
+    from meaninggrid_ingest.connectors.base import EventConnector
+
+    assert isinstance(event_connector("slack"), EventConnector)
+    assert isinstance(event_connector("github"), EventConnector)
+    assert event_connector("discord") is None  # polling-only — no webhook
+    assert event_connector("nope") is None
+
+
+def test_discord_authorize_url():
+    url = oauth.discord_authorize_url("cid", "https://x/api/oauth/discord/callback", "st")
+    assert url.startswith("https://discord.com/oauth2/authorize?")
+    assert "scope=bot" in url and "permissions=66560" in url
+    assert "client_id=cid" in url and "state=st" in url
+
+
+def test_discord_raise_for_status():
+    from meaninggrid_ingest.connectors.discord import DiscordConnector
+
+    class R:
+        def __init__(self, code, headers=None):
+            self.status_code = code
+            self.headers = headers or {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    for code, frag in [(401, "token"), (403, "permission"), (404, "not found")]:
+        with pytest.raises(RuntimeError) as ei:
+            DiscordConnector._raise_for_discord(R(code))
+        assert frag in str(ei.value)
+    with pytest.raises(RuntimeError) as ei:
+        DiscordConnector._raise_for_discord(R(429, {"Retry-After": "3"}))
+    assert "rate limit" in str(ei.value) and "3" in str(ei.value)
+    DiscordConnector._raise_for_discord(R(200))  # ok → no raise
+
+
+async def test_discord_connector_builds_events(monkeypatch):
+    import httpx
+    from meaninggrid_ingest.connectors.discord import DiscordConnector
+
+    messages = [  # Discord returns newest-first
+        {"id": "30", "content": "third", "timestamp": "2026-06-03T00:00:00+00:00",
+         "author": {"username": "carol"}},
+        {"id": "20", "content": "second", "timestamp": "2026-06-02T00:00:00+00:00",
+         "author": {"username": "bob"}},
+        {"id": "10", "content": "first", "timestamp": "2026-06-01T00:00:00+00:00",
+         "author": {"username": "alice"}},
+    ]
+
+    class FakeResp:
+        status_code = 200
+        headers: dict = {}
+
+        def json(self):
+            return messages
+
+        def raise_for_status(self):
+            pass
+
+    captured = {}
+
+    async def fake_get(self, url, params=None, headers=None):
+        captured.update(url=url, params=params, headers=headers)
+        return FakeResp()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    res = await DiscordConnector().fetch(
+        org_id="p1",
+        config={"channel_id": "CH1", "channel_name": "general", "guild_id": "G1"},
+        secret="bot-token",
+        since="5",
+    )
+    # reversed to chronological (oldest first)
+    assert [e.data["content"] for e in res.events] == ["first", "second", "third"]
+    assert all(e.mgtenant == "p1" for e in res.events)
+    e = res.events[0]
+    assert e.id == "discord-CH1-10"
+    assert e.source == "discord:G1:CH1"
+    assert e.type == "com.discord.message"
+    assert e.subject == "channel:general"
+    assert e.data["author"] == "alice" and e.data["guild_id"] == "G1"
+    assert res.cursor == "30"  # max snowflake (int compare)
+    assert captured["headers"]["Authorization"] == "Bot bot-token"
+    assert captured["params"]["after"] == "5"  # cursor forwarded
+
+
+async def test_discord_source_uses_bot_token(tmp_path):
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        svc.s = IngestSettings(discord_bot_token="bot-xyz")
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        await svc.set_discord_guild(p.id, "G1", "My Guild")
+        proj = await svc.get_project(p.id)
+        assert proj.discord_guild_id == "G1" and proj.discord_guild_name == "My Guild"
+        # no per-source secret → falls back to the app-level bot token; guild stamped in
+        src = await svc.create_source(
+            p.id, "discord", {"channel_id": "CH1", "channel_name": "gen"}, None
+        )
+        assert src.secret == "bot-xyz"
+        import json as _json
+
+        assert _json.loads(src.config_json)["guild_id"] == "G1"
+        # disconnect clears the guild
+        await svc.disconnect_provider(p.id, "discord")
+        proj = await svc.get_project(p.id)
+        assert proj.discord_guild_id is None
+    finally:
+        await engine.dispose()

@@ -10,7 +10,20 @@ from meaninggrid_shared import CloudEvent
 
 _URGENT_LABELS = {"p0", "p1", "security", "critical", "urgent", "incident", "sev1", "sev0"}
 _URGENT_WORDS = ("outage", "down", "incident", "urgent", "broken", "regression", "data loss")
-_SLACK_MENTIONS = ("<!here>", "<!channel>", "@here", "@channel", "@oncall", "<!subteam")
+# Broadcast/at-mentions across chat providers — Slack (``<!here>``, ``<!subteam``)
+# and Discord (``@everyone``, role mentions ``<@&id>``).
+_CHAT_MENTIONS = (
+    "<!here>",
+    "<!channel>",
+    "@here",
+    "@channel",
+    "@everyone",
+    "@oncall",
+    "<!subteam",
+    "<@&",
+)
+# Chat message event types → the provider tag used in the matched rule id.
+_CHAT_TYPES = {"com.slack.message": "slack", "com.discord.message": "discord"}
 
 
 def rules_match(event: CloudEvent) -> str | None:
@@ -28,11 +41,12 @@ def rules_match(event: CloudEvent) -> str | None:
         if any(w in title for w in _URGENT_WORDS):
             return "rule:github-urgent-title"
 
-    if event.type == "com.slack.message":
+    provider = _CHAT_TYPES.get(event.type)
+    if provider:  # slack / discord chat messages
         text = str(data.get("text", "")).lower()
-        if any(m in text for m in _SLACK_MENTIONS):
-            return "rule:slack-mention"
+        if any(m in text for m in _CHAT_MENTIONS):
+            return f"rule:{provider}-mention"
         if any(w in text for w in _URGENT_WORDS):
-            return "rule:slack-urgent-word"
+            return f"rule:{provider}-urgent-word"
 
     return None

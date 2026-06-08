@@ -53,18 +53,21 @@ function SourceCard({
 
   const st = uiStatus(s);
   const meta = STATUS[st];
-  const isGh = s.kind === "github";
+  const TypeIcon = s.kind === "github" ? Icon.github : s.kind === "discord" ? Icon.discord : Icon.slack;
+  const noun = s.kind === "github" ? "repository" : "channel";
   const watching = st === "live";
 
   return (
     <div className={"src-card " + st} ref={ref}>
       <div className="src-top">
-        <span className={"src-ic " + s.kind}>{isGh ? <Icon.github size={18} /> : <Icon.slack size={18} />}</span>
+        <span className={"src-ic " + s.kind}>
+          <TypeIcon size={18} />
+        </span>
         <div className="src-id">
           <span className="src-name">{sourceName(s)}</span>
           <span className="src-sub">
-            {isGh ? <Icon.github size={11} /> : <Icon.slack size={11} />}
-            {isGh ? "repository" : "channel"}
+            <TypeIcon size={11} />
+            {noun}
           </span>
         </div>
         <button className="icon-btn" onClick={() => setMenu((m) => !m)} title="Source actions">
@@ -139,7 +142,7 @@ function AddSourceModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [step, setStep] = useState<"pick" | "github" | "slack">("pick");
+  const [step, setStep] = useState<"pick" | "github" | "slack" | "discord">("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
   const [channel, setChannel] = useState("");
@@ -155,11 +158,22 @@ function AddSourceModal({
     step === "github" && project.github_connected ? `/oauth/github/repos?project_id=${project.id}` : null,
     fetcher,
   );
+  const discordChannels = useSWR<Channel[]>(
+    step === "discord" && project.discord_connected
+      ? `/oauth/discord/channels?project_id=${project.id}`
+      : null,
+    fetcher,
+  );
   const health = useSWR<Health>("/health", fetcher);
   const ghOauth = !!health.data?.oauth.github;
   const slackOauth = !!health.data?.oauth.slack;
+  const discordOauth = !!health.data?.oauth.discord;
 
-  async function connect(kind: "github" | "slack", config: Record<string, unknown>, secret?: string | null) {
+  async function connect(
+    kind: "github" | "slack" | "discord",
+    config: Record<string, unknown>,
+    secret?: string | null,
+  ) {
     setBusy(true);
     setErr(null);
     if (kind === "github" && typeof config.repo === "string") {
@@ -193,7 +207,9 @@ function AddSourceModal({
       ? "Add a context source"
       : step === "github"
         ? "Connect a GitHub repo"
-        : "Connect a Slack channel";
+        : step === "slack"
+          ? "Connect a Slack channel"
+          : "Connect a Discord channel";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -230,6 +246,18 @@ function AddSourceModal({
                 <span>
                   <span className="pick-name">Slack channel</span>
                   <span className="pick-sub">Threads, decisions &amp; context</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
+              <button className="pick-card" onClick={() => setStep("discord")}>
+                <span className="src-ic discord lg">
+                  <Icon.discord size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">Discord channel</span>
+                  <span className="pick-sub">Server messages &amp; context</span>
                 </span>
                 <span className="pick-go">
                   <Icon.chevronR size={15} />
@@ -436,6 +464,81 @@ function AddSourceModal({
             )}
           </div>
         )}
+
+        {step === "discord" && (
+          <div className="modal-body">
+            {project.discord_connected ? (
+              <>
+                <label className="field-label">Channel</label>
+                <Select
+                  value={channel}
+                  onChange={setChannel}
+                  loading={!discordChannels.data}
+                  icon={<Icon.discord size={15} />}
+                  placeholder="Select a channel…"
+                  emptyText="No channels found"
+                  ariaLabel="Channel"
+                  options={(discordChannels.data ?? []).map((c) => ({ value: c.id, label: `#${c.name}` }))}
+                />
+                <p className="modal-note">
+                  {project.discord_guild_name ? `${project.discord_guild_name} · ` : ""}recent history is
+                  captured on connect, then kept current on each sync.
+                </p>
+                {err && <p className="modal-err">{err}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={busy || !channel}
+                    onClick={() => {
+                      const ch = discordChannels.data?.find((c) => c.id === channel);
+                      if (ch) connect("discord", { channel_id: ch.id, channel_name: ch.name });
+                    }}
+                  >
+                    <Icon.plus size={15} />
+                    {busy ? "Connecting…" : "Connect channel"}
+                  </button>
+                </div>
+              </>
+            ) : discordOauth ? (
+              <>
+                <p className="modal-note">
+                  Authorize the MeaningGrid bot to read your server&apos;s messages (read-only).
+                  You&apos;ll pick a channel after connecting.
+                </p>
+                {err && <p className="modal-err">{err}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                  <button
+                    className="btn primary"
+                    onClick={() => (window.location.href = api.oauthStartUrl("discord", project.id))}
+                  >
+                    <Icon.discord size={15} />
+                    Connect with Discord
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="modal-note">
+                  Discord isn&apos;t configured on this instance yet. An admin needs to set
+                  <code className="ic"> DISCORD_OAUTH_CLIENT_ID</code> /{" "}
+                  <code className="ic">DISCORD_OAUTH_CLIENT_SECRET</code> /{" "}
+                  <code className="ic">DISCORD_BOT_TOKEN</code> and restart.
+                </p>
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -552,7 +655,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub repo or Slack channel</span>
+          <span className="add-sub">GitHub repo, Slack or Discord channel</span>
         </button>
       </div>
 

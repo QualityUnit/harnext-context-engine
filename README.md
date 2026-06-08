@@ -1,7 +1,7 @@
 # MeaningGrid — Streaming Context Engine
 
 An open-source **Context Management System (CMS)** for streaming AI agents. It
-ingests heterogeneous events (GitHub, Slack, …), routes each onto a **fast** or
+ingests heterogeneous events (GitHub, Slack, Discord, …), routes each onto a **fast** or
 **batch** lane, and incorporates them into a living, per-organization **context
 filesystem** maintained by a real coding agent (Claude Code / Codex) running over
 [AgentFS](https://docs.turso.tech/agentfs/introduction). The org's context is
@@ -15,7 +15,7 @@ supersede knowledge in a filesystem.
 ## Architecture
 
 ```
-GitHub / Slack
+GitHub / Slack / Discord
    │  connector → CloudEvents v1.0  (subject = entity key, mgtenant = org)
    ▼
 apps/ingest ──► Kafka: cms.events.raw.v1
@@ -75,8 +75,8 @@ Then open the dashboard at **`http://localhost:3100`**:
 1. **Sign in** — register with email + password, or **Continue with Google**. Sessions
    are JWTs; the API routes are scoped to the logged-in user.
 2. **Create a project** — this is a tenant; its id is the `mgtenant` used throughout.
-3. **Connect a source** — *Connect GitHub* / *Connect Slack* (OAuth), or use
-   *advanced: add manually* to add a public repo with no setup. Pick a repo/channel.
+3. **Connect a source** — *Connect GitHub* / *Connect Slack* / *Connect Discord* (OAuth),
+   or use *advanced: add manually* to add a public repo with no setup. Pick a repo/channel.
 4. **Sync now** — events flow ingest → classify → build, and the *Recent events*
    and *Context builds* panels light up.
 
@@ -97,6 +97,12 @@ Register your own apps and put the credentials in `.env`:
 - **Slack** → an app with redirect `http://localhost:8000/oauth/slack/callback` and
   scopes `channels:history,channels:read` → set `SLACK_OAUTH_CLIENT_ID` /
   `SLACK_OAUTH_CLIENT_SECRET`.
+- **Discord** → an app + bot with OAuth redirect `http://localhost:8000/oauth/discord/callback`,
+  scope `bot` and bot permissions *View Channel* + *Read Message History* → set
+  `DISCORD_OAUTH_CLIENT_ID` / `DISCORD_OAUTH_CLIENT_SECRET` / `DISCORD_BOT_TOKEN`. *Connect
+  Discord* invites the bot into a server; the channel poller uses the bot token (enable the
+  bot's **Message Content** privileged intent so it can read message text). Discord has no
+  message webhook, so it is poll-only — *Sync* pulls a channel's recent messages.
 
 Without them, the *Connect* buttons are disabled and you use the manual path (a
 public GitHub repo needs no token at all).
@@ -117,7 +123,7 @@ incorporates both into `data/agentfs/.agentfs/acme.db`.
 | Path | What |
 |------|------|
 | `packages/shared` | CloudEvent envelope, ContextUnit, topics, DB models, session helpers |
-| `apps/ingest` | source registry API + GitHub/Slack connectors → raw topic |
+| `apps/ingest` | source registry API + GitHub/Slack/Discord connectors → raw topic |
 | `apps/classifier` | fast/batch routing (rules + anomaly) + batch windowing |
 | `apps/builder` | the builder: AgentFS store, harness, build runner, Kafka consumers |
 | `apps/mcp` | the external MCP surface (research / get_urls / update) |
