@@ -15,7 +15,7 @@ supersede knowledge in a filesystem.
 ## Architecture
 
 ```
-GitHub / Slack / Discord
+GitHub / Slack / Discord / LiveAgent
    │  connector → CloudEvents v1.0  (subject = entity key, mgtenant = org)
    ▼
 apps/ingest ──► Kafka: cms.events.raw.v1
@@ -105,9 +105,14 @@ Register your own apps and put the credentials in `.env`:
   Discord* invites the bot into a server; the channel poller uses the bot token (enable the
   bot's **Message Content** privileged intent so it can read message text). Discord has no
   message webhook, so it is poll-only — *Sync* pulls a channel's recent messages.
+- **LiveAgent** → no OAuth and nothing to set on the instance: each project pastes its own
+  helpdesk **base URL** + a **v3 API key** (Configuration → System → API), then connects a
+  *department* (optionally narrowed to a *tag*) as a source. The poller walks that department's
+  tickets oldest-first by `date_changed`, folding each ticket's conversation into the event, and
+  keeps a `"<date_changed>|<ticket_id>"` cursor so each *Sync* resumes where the last left off.
 
 Without them, the *Connect* buttons are disabled and you use the manual path (a
-public GitHub repo needs no token at all).
+public GitHub repo needs no token at all; LiveAgent always uses the per-project key).
 
 ### Smoke test (no network, no API key)
 
@@ -125,7 +130,7 @@ incorporates both into `data/agentfs/.agentfs/acme.db`.
 | Path | What |
 |------|------|
 | `packages/shared` | CloudEvent envelope, ContextUnit, topics, DB models, session helpers |
-| `apps/ingest` | source registry API + GitHub/Slack/Discord connectors → raw topic |
+| `apps/ingest` | source registry API + GitHub/Slack/Discord/LiveAgent connectors → raw topic |
 | `apps/classifier` | fast/batch routing (rules + anomaly) + batch windowing |
 | `apps/builder` | the builder: AgentFS store, harness, build runner, Kafka consumers |
 | `apps/mcp` | the external MCP surface (research / get_urls / update) |

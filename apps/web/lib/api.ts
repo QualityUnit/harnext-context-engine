@@ -27,6 +27,8 @@ export interface Project {
   slack_connected: boolean;
   discord_guild_name: string | null;
   discord_connected: boolean;
+  liveagent_base_url: string | null;
+  liveagent_connected: boolean;
 }
 
 export interface Source {
@@ -110,6 +112,14 @@ export interface Channel {
   id: string;
   name: string;
 }
+export interface Department {
+  id: string;
+  name: string;
+}
+export interface Tag {
+  id: string;
+  name: string;
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
@@ -172,6 +182,16 @@ export const api = {
   listRepos: (projectId: string) => req<Repo[]>(`/oauth/github/repos?project_id=${projectId}`),
   listChannels: (projectId: string) =>
     req<Channel[]>(`/oauth/slack/channels?project_id=${projectId}`),
+
+  // LiveAgent (no OAuth): store base URL + v3 API key, then list departments/tags.
+  connectLiveAgent: (projectId: string, base_url: string, api_key: string) =>
+    req<Project>(`/projects/${projectId}/integrations/liveagent`, {
+      ...json({ base_url, api_key }),
+      method: "PUT",
+    }),
+  listDepartments: (projectId: string) =>
+    req<Department[]>(`/liveagent/departments?project_id=${projectId}`),
+  listTags: (projectId: string) => req<Tag[]>(`/liveagent/tags?project_id=${projectId}`),
 
   createSource: (
     project_id: string,

@@ -23,6 +23,11 @@ export const cfg = (s: Source, k: string): string => {
 
 export function sourceName(s: Source): string {
   if (s.kind === "github") return cfg(s, "repo") || "repository";
+  if (s.kind === "liveagent") {
+    const dept = cfg(s, "department_name") || cfg(s, "department_id") || "department";
+    const tag = cfg(s, "tag_name");
+    return tag ? `${dept} · #${tag}` : dept;
+  }
   return cfg(s, "channel_name") ? `#${cfg(s, "channel_name")}` : cfg(s, "channel_id") || "channel";
 }
 
