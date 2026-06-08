@@ -29,6 +29,10 @@ class IngestSettings(BaseSettings):
     # are created with the `meaninggrid_ingest.admin` CLI on the server.
     registration_open: bool = False
 
+    # Slack Events API signing secret — verifies inbound webhook POSTs. Set it to
+    # enable POST /webhooks/slack (real-time messages); leave empty to disable.
+    slack_signing_secret: str | None = None
+
     # OAuth apps (register your own; leave empty to disable a provider).
     github_oauth_client_id: str | None = None
     github_oauth_client_secret: str | None = None

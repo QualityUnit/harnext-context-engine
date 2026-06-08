@@ -6,7 +6,7 @@ import json
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from meaninggrid_shared import (
@@ -43,7 +43,7 @@ from meaninggrid_ingest.schemas import (
     SyncOut,
     UserOut,
 )
-from meaninggrid_ingest.security import create_token, decode_token
+from meaninggrid_ingest.security import create_token, decode_token, verify_slack_signature
 from meaninggrid_ingest.service import SourceService
 from meaninggrid_ingest.settings import IngestSettings
 
@@ -441,6 +441,33 @@ async def sync_source(source_id: str, svc: SvcDep, user: UserDep) -> SyncOut:
     except Exception as e:
         raise HTTPException(502, f"sync failed: {e}") from e
     return SyncOut(source_id=source_id, ingested=n)
+
+
+@app.post("/webhooks/slack")
+async def slack_webhook(request: Request, svc: SvcDep, cfg: CfgDep) -> dict:
+    """Slack Events API receiver (real-time). Verifies the request signature, then
+    pushes message events into the same pipeline the poller feeds. Signed but
+    otherwise public — no bearer auth."""
+    if not cfg.slack_signing_secret:
+        raise HTTPException(503, "slack webhook not configured")
+    raw = await request.body()
+    if not verify_slack_signature(
+        cfg.slack_signing_secret,
+        request.headers.get("X-Slack-Request-Timestamp", ""),
+        request.headers.get("X-Slack-Signature", ""),
+        raw.decode("utf-8", "replace"),
+    ):
+        raise HTTPException(401, "bad slack signature")
+
+    payload = json.loads(raw)
+    if payload.get("type") == "url_verification":  # one-time endpoint handshake
+        return {"challenge": payload.get("challenge")}
+    if payload.get("type") == "event_callback":
+        ev = payload.get("event") or {}
+        # only real, top-level user messages — skip edits/deletes/joins and bots
+        if ev.get("type") == "message" and not ev.get("subtype") and not ev.get("bot_id"):
+            await svc.ingest_slack_event(payload.get("team_id"), ev)
+    return {"ok": True}
 
 
 @app.get("/events", response_model=list[EventOut])

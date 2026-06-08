@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from meaninggrid_shared import (
@@ -394,6 +394,59 @@ class SourceService:
                 src.status = "error"
                 src.last_error = error[:2000]
                 await s.commit()
+
+    async def ingest_slack_event(self, team_id: str | None, ev: dict) -> int:
+        """Push a single Slack message (from the Events API webhook) into the same
+        pipeline as a poll. Targets every project that connected this workspace and
+        registered this channel as a source. Returns how many it fanned out to.
+
+        The event id is ``slack-<channel>-<ts>`` — identical to the poller's, so a
+        message that arrives via both webhook and a later sync is deduped."""
+        channel_id = ev.get("channel")
+        ts = ev.get("ts")
+        if not (team_id and channel_id and ts):
+            return 0
+
+        matches: list[tuple[Source, str]] = []
+        async with self.sm() as s:
+            proj_ids = list(
+                (
+                    await s.execute(select(Project.id).where(Project.slack_team_id == team_id))
+                ).scalars()
+            )
+            if not proj_ids:
+                return 0
+            srcs = (
+                await s.execute(
+                    select(Source).where(Source.org_id.in_(proj_ids), Source.kind == "slack")
+                )
+            ).scalars()
+            for src in srcs:
+                conf = json.loads(src.config_json)
+                if conf.get("channel_id") == channel_id:
+                    matches.append((src, conf.get("channel_name", channel_id)))
+
+        for src, channel_name in matches:
+            cev = CloudEvent(
+                id=f"slack-{channel_id}-{ts}",
+                source=f"slack:{channel_id}",
+                type="com.slack.message",
+                subject=f"channel:{channel_name}",
+                time=datetime.fromtimestamp(float(ts), tz=UTC),
+                mgtenant=src.org_id,
+                data={
+                    "channel": channel_id,
+                    "channel_name": channel_name,
+                    "user": ev.get("user"),
+                    "text": (ev.get("text") or "")[:1200],
+                    "ts": ts,
+                    "reply_count": ev.get("reply_count", 0),
+                },
+            )
+            await self.producer.send_event(RAW_EVENTS_TOPIC, cev)
+            await self._record_ingested(src, cev)
+            await self._mark_synced(src.id, ts)
+        return len(matches)
 
     async def list_events(self, project_id: str, limit: int = 50) -> list[IngestedEvent]:
         async with self.sm() as s:

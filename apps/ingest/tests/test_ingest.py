@@ -155,6 +155,100 @@ async def test_oauth_token_reuse(tmp_path):
         await engine.dispose()
 
 
+def test_slack_signature_verify():
+    import hashlib
+    import hmac
+    import time as _t
+
+    from meaninggrid_ingest.security import verify_slack_signature
+
+    secret, body = "shh", '{"x":1}'
+    ts = str(int(_t.time()))
+    sig = "v0=" + hmac.new(secret.encode(), f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    assert verify_slack_signature(secret, ts, sig, body)
+    assert not verify_slack_signature(secret, ts, "v0=deadbeef", body)  # wrong sig
+    assert not verify_slack_signature(secret, str(int(_t.time()) - 9999), sig, body)  # replay
+    assert not verify_slack_signature("", ts, sig, body)  # unconfigured
+
+
+async def test_slack_event_routing(tmp_path):
+    svc, engine, producer = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        await svc.set_slack_token(p.id, "T1", "Team", "xoxb")
+        await svc.create_source(p.id, "slack", {"channel_id": "C1", "channel_name": "eng"}, "xoxb")
+        ev = {"type": "message", "channel": "C1", "user": "U1", "text": "hi", "ts": "1700000000.0001"}
+        assert await svc.ingest_slack_event("T1", ev) == 1
+        sent = producer.sent[-1][1]
+        assert sent.id == "slack-C1-1700000000.0001" and sent.subject == "channel:eng"
+        assert await svc.ingest_slack_event("T1", {**ev, "channel": "CX"}) == 0  # unregistered channel
+        assert await svc.ingest_slack_event("OTHER", ev) == 0  # wrong workspace
+    finally:
+        await engine.dispose()
+
+
+async def test_slack_webhook_endpoint(tmp_path):
+    import hashlib
+    import hmac
+    import json as _json
+    import time as _t
+
+    import httpx
+    from meaninggrid_ingest.main import app
+    from meaninggrid_ingest.main import service as service_dep
+    from meaninggrid_ingest.main import settings as settings_dep
+
+    svc, engine, producer = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        await svc.set_slack_token(p.id, "T1", "Team", "xoxb")
+        await svc.create_source(p.id, "slack", {"channel_id": "C1", "channel_name": "eng"}, "xoxb")
+
+        cfg = IngestSettings(slack_signing_secret="shh")
+        app.dependency_overrides[service_dep] = lambda: svc
+        app.dependency_overrides[settings_dep] = lambda: cfg
+
+        def sign(body: str) -> dict[str, str]:
+            ts = str(int(_t.time()))
+            sig = "v0=" + hmac.new(b"shh", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+            return {"X-Slack-Request-Timestamp": ts, "X-Slack-Signature": sig}
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            body = _json.dumps({"type": "url_verification", "challenge": "abc123"})
+            r = await c.post("/webhooks/slack", content=body, headers=sign(body))
+            assert r.status_code == 200 and r.json()["challenge"] == "abc123"
+
+            body = _json.dumps(
+                {
+                    "type": "event_callback",
+                    "team_id": "T1",
+                    "event": {
+                        "type": "message",
+                        "channel": "C1",
+                        "user": "U1",
+                        "text": "hello",
+                        "ts": "1700000001.0002",
+                    },
+                }
+            )
+            r = await c.post("/webhooks/slack", content=body, headers=sign(body))
+            assert r.status_code == 200
+            assert any(e.id == "slack-C1-1700000001.0002" for _, e in producer.sent)
+
+            r = await c.post(
+                "/webhooks/slack",
+                content=body,
+                headers={"X-Slack-Request-Timestamp": str(int(_t.time())), "X-Slack-Signature": "v0=bad"},
+            )
+            assert r.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
 def test_oauth_state():
     s = oauth.new_state("proj1", "github")
     assert oauth.consume_state(s) == ("proj1", "github")
