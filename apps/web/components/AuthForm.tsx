@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE, api } from "@/lib/api";
 import { setSession } from "@/lib/auth";
@@ -88,6 +88,14 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [state, setState] = useState<"idle" | "loading" | "done">("idle");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [oauth, setOauth] = useState<{ github: boolean; google: boolean } | null>(null);
+  useEffect(() => {
+    api
+      .health()
+      .then((h) => setOauth({ github: h.oauth.github, google: h.oauth.google }))
+      .catch(() => setOauth({ github: false, google: false }));
+  }, []);
+
   const isSignup = mode === "signup";
   const set = (k: keyof typeof f) => (v: string) => {
     setF((p) => ({ ...p, [k]: v }));
@@ -170,18 +178,25 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
               </div>
             </div>
 
-            <div className="oauth">
-              <a className="oauth-btn gh" href={`${API_BASE}/auth/github/start`}>
-                <IGitHub />
-                Continue with GitHub
-              </a>
-              <a className="oauth-btn" href={`${API_BASE}/auth/google/start`}>
-                <IGoogle />
-                Continue with Google
-              </a>
-            </div>
-
-            <div className="divider">or {isSignup ? "sign up" : "sign in"} with email</div>
+            {oauth && (oauth.github || oauth.google) && (
+              <>
+                <div className="oauth">
+                  {oauth.github && (
+                    <a className="oauth-btn gh" href={`${API_BASE}/auth/github/start`}>
+                      <IGitHub />
+                      Continue with GitHub
+                    </a>
+                  )}
+                  {oauth.google && (
+                    <a className="oauth-btn" href={`${API_BASE}/auth/google/start`}>
+                      <IGoogle />
+                      Continue with Google
+                    </a>
+                  )}
+                </div>
+                <div className="divider">or {isSignup ? "sign up" : "sign in"} with email</div>
+              </>
+            )}
 
             <div className="field-group">
               {isSignup && (
