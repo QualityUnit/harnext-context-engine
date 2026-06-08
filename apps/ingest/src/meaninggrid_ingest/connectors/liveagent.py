@@ -280,12 +280,17 @@ async def _list(base_url: str, api_key: str, path: str) -> list[dict[str, Any]]:
 
 
 async def list_departments(base_url: str, api_key: str) -> list[dict[str, str]]:
+    # LiveAgent's Department object keys the id as ``department_id`` (only Tag uses
+    # ``id``). Reading ``id`` here matched nothing, so the picker came up empty even
+    # though departments exist. Prefer ``department_id``, tolerate ``id`` as a fallback.
     rows = await _list(base_url, api_key, "/departments")
-    return [
-        {"id": str(d.get("id")), "name": d.get("name") or str(d.get("id"))}
-        for d in rows
-        if d.get("id") is not None
-    ]
+    out: list[dict[str, str]] = []
+    for d in rows:
+        did = d.get("department_id") or d.get("id")
+        if did is None:
+            continue
+        out.append({"id": str(did), "name": d.get("name") or str(did)})
+    return out
 
 
 async def list_tags(base_url: str, api_key: str) -> list[dict[str, str]]:

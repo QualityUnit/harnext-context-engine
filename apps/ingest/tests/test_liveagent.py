@@ -102,6 +102,45 @@ def test_normalize_base_url():
         assert normalize_base_url(raw) == want
 
 
+async def test_list_departments_and_tags(monkeypatch):
+    """LiveAgent's Department keys its id as ``department_id`` (Tag uses ``id``).
+    Reading ``id`` for departments dropped every row — the picker came up empty."""
+    from meaninggrid_ingest.connectors.liveagent import list_departments, list_tags
+
+    async def fake_get(self, url, params=None, **kw):
+        class R:
+            status_code = 200
+            headers: dict = {}
+
+            def __init__(self, data):
+                self._data = data
+
+            def json(self):
+                return self._data
+
+            def raise_for_status(self):
+                pass
+
+        if url == "/departments":  # real v3 shape: department_id, not id
+            return R(
+                [
+                    {"department_id": "dept1", "name": "Support", "agent_count": 3},
+                    {"department_id": "dept2", "name": "Sales"},
+                    {"name": "no id — must be skipped"},
+                ]
+            )
+        if url == "/tags":
+            return R([{"id": "t1", "name": "vip"}, {"id": "t2", "name": "urgent"}])
+        return R([])
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    deps = await list_departments("https://acme.ladesk.com", "key")
+    assert deps == [{"id": "dept1", "name": "Support"}, {"id": "dept2", "name": "Sales"}]
+    tags = await list_tags("https://acme.ladesk.com", "key")
+    assert tags == [{"id": "t1", "name": "vip"}, {"id": "t2", "name": "urgent"}]
+
+
 async def test_connector_builds_events(monkeypatch):
     fake_get, captured = _fake_client(_TICKETS)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
