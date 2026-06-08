@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { formatBytes, rel, sourceName, uiStatus, STATUS } from "@/lib/sourceDisplay";
 import { Icon } from "@/components/DashIcons";
+import { Select } from "@/components/Select";
 
 const errMsg = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e)).replace(/^sync failed:\s*/i, "");
@@ -252,19 +253,16 @@ function AddSourceModal({
             {project.github_connected && (repos.data?.length ?? 0) > 0 ? (
               <>
                 <label className="field-label">Repository</label>
-                <div className="field">
-                  <span className="field-ic">
-                    <Icon.github size={15} />
-                  </span>
-                  <select value={repo} onChange={(e) => setRepo(e.target.value)}>
-                    <option value="">{repos.data ? "Select a repo…" : "Loading…"}</option>
-                    {repos.data?.map((r) => (
-                      <option key={r.full_name} value={r.full_name}>
-                        {r.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  value={repo}
+                  onChange={setRepo}
+                  loading={!repos.data}
+                  icon={<Icon.github size={15} />}
+                  placeholder="Select a repo…"
+                  emptyText="No repositories found"
+                  ariaLabel="Repository"
+                  options={(repos.data ?? []).map((r) => ({ value: r.full_name, label: r.full_name }))}
+                />
                 <p className="modal-note">
                   Connected as @{project.github_login}. We index the default branch and set up real-time
                   updates automatically — no GitHub settings to touch.
@@ -370,19 +368,16 @@ function AddSourceModal({
             {project.slack_connected ? (
               <>
                 <label className="field-label">Channel</label>
-                <div className="field">
-                  <span className="field-ic">
-                    <Icon.slack size={15} />
-                  </span>
-                  <select value={channel} onChange={(e) => setChannel(e.target.value)}>
-                    <option value="">{channels.data ? "Select a channel…" : "Loading…"}</option>
-                    {channels.data?.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        #{c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  value={channel}
+                  onChange={setChannel}
+                  loading={!channels.data}
+                  icon={<Icon.slack size={15} />}
+                  placeholder="Select a channel…"
+                  emptyText="No channels found"
+                  ariaLabel="Channel"
+                  options={(channels.data ?? []).map((c) => ({ value: c.id, label: `#${c.name}` }))}
+                />
                 <p className="modal-note">
                   {project.slack_team_name ? `${project.slack_team_name} · ` : ""}last 90 days of history is
                   captured, then kept live.

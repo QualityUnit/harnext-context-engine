@@ -568,10 +568,33 @@ body {
 .pick-sub { font-size: 11px; color: var(--tx-2); margin-top: 2px; }
 .pick-card > span:nth-child(2) { display: flex; flex-direction: column; }
 .pick-go { margin-left: auto; color: var(--tx-2); }
-.field select { flex: 1; background: transparent; border: none; outline: none; color: var(--tx-0); font-size: 13px; padding: 11px 0; appearance: none; cursor: pointer; }
-.field select option { background: var(--bg-2); color: var(--tx-0); }
 .field.sm { width: 260px; }
 .field.sm input { padding: 9px 0; font-size: 12.5px; }
+
+/* ----- custom dropdown (Select.tsx) ----- */
+.sel { position: relative; width: 100%; }
+.sel-btn { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--bg-0); border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 13px; color: var(--tx-0); font-size: 13px; font-family: inherit; text-align: left; cursor: pointer; transition: .13s; }
+.sel-btn:hover:not(:disabled) { border-color: var(--tx-3); }
+.sel-btn.open, .sel-btn:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px var(--p-soft); outline: none; }
+.sel-btn:disabled { cursor: not-allowed; }
+.sel.disabled { opacity: .55; }
+.sel-ic { color: var(--tx-3); display: grid; place-items: center; flex: none; }
+.sel-val { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sel-val.ph { color: var(--tx-3); }
+.sel-chev { color: var(--tx-2); flex: none; display: grid; place-items: center; transition: transform .15s ease; }
+.sel-chev.up { transform: rotate(180deg); }
+.sel-pop { position: fixed; z-index: 70; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-lg); padding: 6px; box-shadow: 0 18px 44px rgba(0,0,0,.5); overflow-y: auto; animation: selpop .12s ease; }
+@keyframes selpop { from { opacity: 0; } }
+.sel-opt { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border-radius: 8px; background: none; border: none; color: var(--tx-1); font-family: inherit; text-align: left; cursor: pointer; transition: .1s; }
+.sel-opt.hi { background: var(--bg-3); color: var(--tx-0); }
+.sel-opt.active { background: var(--p-soft); color: var(--p-text); }
+.sel-opt.active.hi { background: color-mix(in oklab, var(--p-soft), var(--bg-3) 45%); }
+.sel-opt-text { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.sel-opt-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sel-opt-hint { font-size: 10.5px; color: var(--tx-2); }
+.sel-tick { margin-left: auto; color: var(--p-text); flex: none; }
+.sel-empty { padding: 10px; font-size: 12px; color: var(--tx-3); text-align: center; }
+
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
 .src-menu { position: absolute; top: 44px; right: 16px; z-index: 20; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 5px; box-shadow: 0 16px 40px rgba(0,0,0,.5); min-width: 150px; animation: pop .12s ease; }
 .src-menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 7px; font-size: 12.5px; color: var(--tx-1); transition: .1s; background: none; border: none; cursor: pointer; text-align: left; }
