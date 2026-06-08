@@ -69,7 +69,7 @@ class ProjectOut(BaseModel):
 
 class SourceCreate(BaseModel):
     project_id: str
-    kind: str  # github | slack | discord
+    kind: str  # github | slack | discord | youtube
     config: dict[str, Any]
     secret: str | None = None  # optional manual token; else the project's OAuth token
 
