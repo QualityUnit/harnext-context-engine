@@ -521,6 +521,7 @@ body {
 .src-ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none; border: 1px solid var(--line); }
 .src-ic.github { background: var(--bg-3); color: var(--tx-0); }
 .src-ic.slack { background: var(--p-soft); color: var(--p-text); border-color: var(--p-line); }
+.src-ic.youtube { background: color-mix(in oklab, #ff0000, transparent 88%); border-color: color-mix(in oklab, #ff0000, transparent 76%); }
 .src-ic.sitemap { background: var(--bg-3); color: var(--tx-0); }
 .src-ic.ghost { background: var(--bg-2); color: var(--tx-2); }
 .src-ic.lg { width: 44px; height: 44px; border-radius: 11px; }

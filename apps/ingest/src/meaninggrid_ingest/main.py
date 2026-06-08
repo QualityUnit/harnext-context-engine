@@ -355,7 +355,7 @@ async def project_mcp_requests(
 
 @app.delete("/projects/{project_id}/integrations/{provider}")
 async def disconnect_provider(project_id: str, provider: str, svc: SvcDep, user: UserDep) -> dict:
-    if provider not in ("github", "slack", "discord"):
+    if provider not in ("github", "slack", "discord", "youtube"):
         raise HTTPException(400, "unknown provider")
     await _owned_project(svc, user, project_id)
     await svc.disconnect_provider(project_id, provider)

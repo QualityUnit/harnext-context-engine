@@ -58,10 +58,19 @@ function SourceCard({
       ? Icon.github
       : s.kind === "discord"
         ? Icon.discord
+        : s.kind === "youtube"
+          ? Icon.youtube
+          : s.kind === "sitemap"
+            ? Icon.globe
+            : Icon.slack;
+  const noun =
+    s.kind === "github"
+      ? "repository"
+      : s.kind === "youtube"
+        ? "channel"
         : s.kind === "sitemap"
-          ? Icon.globe
-          : Icon.slack;
-  const noun = s.kind === "github" ? "repository" : s.kind === "sitemap" ? "website" : "channel";
+          ? "website"
+          : "channel";
   const watching = st === "live";
 
   return (
@@ -149,10 +158,14 @@ function AddSourceModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [step, setStep] = useState<"pick" | "github" | "slack" | "discord" | "sitemap">("pick");
+  const [step, setStep] = useState<
+    "pick" | "github" | "slack" | "discord" | "youtube" | "sitemap"
+  >("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
   const [channel, setChannel] = useState("");
+  const [ytUrl, setYtUrl] = useState("");
+  const [ytName, setYtName] = useState("");
   const [sitemapUrl, setSitemapUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -178,7 +191,7 @@ function AddSourceModal({
   const discordOauth = !!health.data?.oauth.discord;
 
   async function connect(
-    kind: "github" | "slack" | "discord" | "sitemap",
+    kind: "github" | "slack" | "discord" | "youtube" | "sitemap",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -193,6 +206,16 @@ function AddSourceModal({
     } catch (e) {
       setErr(errMsg(e));
       setBusy(false);
+      return;
+    }
+    if (kind === "youtube") {
+      // A first YouTube sync downloads every recent video's captions, which is
+      // far too slow to block the modal on — and there's no token to validate.
+      // Kick the backfill off in the background (the scheduler and "Sync now"
+      // also cover it) and keep the source regardless of how that sync goes.
+      api.syncSource(src.id).catch(() => {});
+      onAdded();
+      onClose();
       return;
     }
     // The first sync doubles as a connection test: a private repo with a
@@ -219,7 +242,9 @@ function AddSourceModal({
           ? "Connect a Slack channel"
           : step === "discord"
             ? "Connect a Discord channel"
-            : "Crawl a website";
+            : step === "youtube"
+              ? "Add a YouTube channel"
+              : "Crawl a website";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -268,6 +293,18 @@ function AddSourceModal({
                 <span>
                   <span className="pick-name">Discord channel</span>
                   <span className="pick-sub">Server messages &amp; context</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
+              <button className="pick-card" onClick={() => setStep("youtube")}>
+                <span className="src-ic youtube lg">
+                  <Icon.youtube size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">YouTube channel</span>
+                  <span className="pick-sub">Video captions &amp; transcripts</span>
                 </span>
                 <span className="pick-go">
                   <Icon.chevronR size={15} />
@@ -562,6 +599,61 @@ function AddSourceModal({
           </div>
         )}
 
+        {step === "youtube" && (
+          <div className="modal-body">
+            <label className="field-label">Channel</label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.youtube size={15} />
+              </span>
+              <input
+                autoFocus
+                value={ytUrl}
+                onChange={(e) => setYtUrl(e.target.value)}
+                placeholder="https://youtube.com/@channel  (or @handle / UC… id)"
+              />
+            </div>
+            <label className="field-label" style={{ marginTop: 12 }}>
+              Display name <span style={{ color: "var(--tx-3)" }}>· optional</span>
+            </label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.youtube size={15} />
+              </span>
+              <input
+                value={ytName}
+                onChange={(e) => setYtName(e.target.value)}
+                placeholder="My Channel"
+              />
+            </div>
+            <p className="modal-note">
+              We poll the channel&apos;s uploads and index each video&apos;s captions — public videos
+              only, no sign-in needed. The first backfill runs in the background.
+            </p>
+            {err && <p className="modal-err">{err}</p>}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setStep("pick")}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy || !ytUrl.trim()}
+                onClick={() => {
+                  const v = ytUrl.trim();
+                  const config: Record<string, unknown> = /^https?:\/\//i.test(v)
+                    ? { channel_url: v }
+                    : { channel_id: v };
+                  if (ytName.trim()) config.channel_name = ytName.trim();
+                  connect("youtube", config, null);
+                }}
+              >
+                <Icon.plus size={15} />
+                {busy ? "Adding…" : "Add channel"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {step === "sitemap" && (
           <div className="modal-body">
             <label className="field-label">Sitemap URL</label>
@@ -578,8 +670,8 @@ function AddSourceModal({
             </div>
             <p className="modal-note">
               We read the sitemap (following a sitemap index), then politely crawl its pages —
-              rate-limited, <code className="ic">robots.txt</code>-aware, freshest pages first. Each
-              sync re-crawls only pages whose <code className="ic">lastmod</code> changed.
+              rate-limited and <code className="ic">robots.txt</code>-aware. Each sync re-crawls
+              only pages whose <code className="ic">lastmod</code> changed.
             </p>
             {err && <p className="modal-err">{err}</p>}
             <div className="modal-actions">
@@ -713,7 +805,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub repo, Slack/Discord channel or a website</span>
+          <span className="add-sub">GitHub, Slack, Discord, YouTube or a website</span>
         </button>
       </div>
 
