@@ -33,14 +33,18 @@ FROM python:3.12-slim-bookworm AS runtime
 
 # git  -> the AgentFS "git" backend (one git repo per org; snapshots = commits)
 # node -> the Claude Code CLI, which the Agent SDK shells out to (builder + mcp)
+# gosu -> drop from root (needed to chown mounted volumes) to the app user
+#         (Claude Code refuses --dangerously-skip-permissions as root)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git curl ca-certificates gnupg \
+    && apt-get install -y --no-install-recommends git ca-certificates gosu curl gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code \
-    && apt-get purge -y curl gnupg \
+    && apt-get purge -y gnupg \
     && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 app \
+    && git config --system --add safe.directory '*'
 
 WORKDIR /app
 COPY --from=build /app /app
@@ -49,7 +53,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
-    HOME=/root \
+    HOME=/home/app \
     GIT_AUTHOR_NAME=meaninggrid \
     GIT_AUTHOR_EMAIL=builder@meaninggrid.local \
     GIT_COMMITTER_NAME=meaninggrid \

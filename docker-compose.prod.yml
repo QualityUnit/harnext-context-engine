@@ -92,7 +92,7 @@ services:
     command: ["python", "-m", "meaninggrid_builder.main"]
     volumes:
       - mg_data:/app/data
-      - mg_claude_builder:/root/.claude
+      - mg_claude_builder:/home/app/.claude
       - ./secrets/claude-credentials.json:/run/secrets/claude-credentials.json:ro
 
   mcp:
@@ -101,7 +101,7 @@ services:
     command: ["python", "-m", "meaninggrid_mcp.main"]
     volumes:
       - mg_data:/app/data
-      - mg_claude_mcp:/root/.claude
+      - mg_claude_mcp:/home/app/.claude
       - ./secrets/claude-credentials.json:/run/secrets/claude-credentials.json:ro
     ports:
       - "127.0.0.1:18765:8765"   # loopback debug only

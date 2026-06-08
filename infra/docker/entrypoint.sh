@@ -1,21 +1,26 @@
 #!/bin/sh
-# Seed the Claude Code OAuth credentials into a persistent ~/.claude on first
-# boot, so the headless `claude` CLI (used by the builder/mcp harness) is
-# authenticated via your account token — no ANTHROPIC_API_KEY needed.
+# Runs as root only long enough to prepare the mounted volumes, then drops to
+# the non-root `app` user (Claude Code refuses --dangerously-skip-permissions as
+# root). Seeds the Claude OAuth credentials into a persistent ~/.claude so the
+# headless CLI is authenticated via your account token — no ANTHROPIC_API_KEY.
 #
 # - /run/secrets/claude-credentials.json : read-only seed (your local token)
-# - $HOME/.claude                        : a named volume, so the CLI's token
-#                                          refreshes persist across restarts.
+# - /home/app/.claude                    : named volume (token refreshes persist)
+# - /app/data                            : shared sqlite + agentfs volume
 set -e
 
+APP_HOME=/home/app
 SEED=/run/secrets/claude-credentials.json
-DEST="$HOME/.claude/.credentials.json"
 
-if [ -f "$SEED" ] && [ ! -f "$DEST" ]; then
-  mkdir -p "$HOME/.claude"
-  cp "$SEED" "$DEST"
-  chmod 600 "$DEST"
-  echo "entrypoint: seeded Claude credentials at $DEST"
+mkdir -p "$APP_HOME/.claude" /app/data
+
+if [ -f "$SEED" ] && [ ! -f "$APP_HOME/.claude/.credentials.json" ]; then
+  cp "$SEED" "$APP_HOME/.claude/.credentials.json"
+  echo "entrypoint: seeded Claude credentials"
 fi
 
-exec "$@"
+# The volumes mount root-owned on first use; hand them to the app user.
+chown -R app:app "$APP_HOME/.claude" /app/data 2>/dev/null || true
+chmod 600 "$APP_HOME/.claude/.credentials.json" 2>/dev/null || true
+
+exec gosu app "$@"
