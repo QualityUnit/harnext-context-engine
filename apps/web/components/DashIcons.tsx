@@ -41,15 +41,11 @@ export const Icon = {
     </svg>
   ),
   // LiveAgent (helpdesk/ticketing) — a lifebuoy, the feather support glyph.
-  liveagent: (p: P) => (
-    <Svg {...p}>
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="12" r="4" />
-      <path d="m4.93 4.93 4.24 4.24" />
-      <path d="m14.83 9.17 4.24-4.24" />
-      <path d="m14.83 14.83 4.24 4.24" />
-      <path d="m9.17 14.83-4.24 4.24" />
-    </Svg>
+  liveagent: ({ size = 18 }: P) => (
+    // Official LiveAgent brand mark (images.liveagent.com/images/logo.svg, icon glyph only).
+    <svg width={size} height={size} viewBox="0 0 36.4 30" fill="#f6921e" aria-hidden="true">
+      <path d="M4.84 12.78c0-1.2.57-3.8 2.82-3.8 1.9 0 2.82 1.2 2.82 3.68 0 2.65-.92 4-2.82 4s-2.82-1.3-2.82-3.88zM19.3 24.36C17.05 27 14.5 30 11.23 30A19.43 19.43 0 0014 24.07C6 22.74 0 18 0 12.2c0-2.82 2-8.4 8.4-8.4a9 9 0 019 9c0 3.63-1.73 5-2.7 5-1.15 0-1.72-.8-1.72-2.42V6.9H10.6v.75a4.07 4.07 0 00-2.94-1c-4.66 0-5.4 4.66-5.4 6.16 0 2 1 6.22 5.4 6.22a4.55 4.55 0 003.51-1.44A3.73 3.73 0 0014.74 20c2.08 0 5-1.73 5-7.32 0-8.18-7.43-11.4-9.9-11.4C23.38-2.95 36.4 3.8 36.4 12.15c0 6.5-7.54 11.85-17.1 12.2z" />
+    </svg>
   ),
   youtube: ({ size = 18 }: P) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true">
