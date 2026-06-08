@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from meaninggrid_ingest.connectors.base import Connector, EventConnector
 
-SUPPORTED_KINDS = ("github", "slack", "discord", "youtube")
+SUPPORTED_KINDS = ("github", "slack", "discord", "youtube", "sitemap")
 
 
 def get_connector(kind: str, *, github_per_page: int = 30) -> Connector:
@@ -24,6 +24,10 @@ def get_connector(kind: str, *, github_per_page: int = 30) -> Connector:
         from meaninggrid_ingest.connectors.youtube import YouTubeConnector
 
         return YouTubeConnector()
+    if kind == "sitemap":
+        from meaninggrid_ingest.connectors.sitemap import SitemapConnector
+
+        return SitemapConnector()
     raise ValueError(f"unknown source kind: {kind!r}")
 
 
