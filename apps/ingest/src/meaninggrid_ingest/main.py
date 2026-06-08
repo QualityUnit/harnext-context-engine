@@ -176,6 +176,8 @@ async def health(cfg: CfgDep) -> dict:
 # -- auth ------------------------------------------------------------------
 @app.post("/auth/register", response_model=AuthOut)
 async def register(body: RegisterIn, svc: SvcDep, cfg: CfgDep) -> AuthOut:
+    if not cfg.registration_open:
+        raise HTTPException(403, "registration is closed — this instance is invite-only")
     if "@" not in body.email or len(body.password) < 6:
         raise HTTPException(400, "valid email and a 6+ char password required")
     try:

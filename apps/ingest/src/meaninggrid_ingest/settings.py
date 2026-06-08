@@ -25,6 +25,10 @@ class IngestSettings(BaseSettings):
     # Public URL of the (multi-tenant) MCP server, shown in the Connect panel.
     mcp_public_url: str = "http://localhost:8765/mcp"
 
+    # Self-serve signup. Off by default: this deployment is invite-only, accounts
+    # are created with the `meaninggrid_ingest.admin` CLI on the server.
+    registration_open: bool = False
+
     # OAuth apps (register your own; leave empty to disable a provider).
     github_oauth_client_id: str | None = None
     github_oauth_client_secret: str | None = None

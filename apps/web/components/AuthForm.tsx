@@ -243,10 +243,16 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
             </button>
 
             <div className="toggle">
-              {isSignup ? "Already have an account? " : "New to MeaningGrid? "}
-              <button onClick={() => router.push(isSignup ? "/login" : "/register")}>
-                {isSignup ? "Sign in" : "Create one"}
-              </button>
+              {isSignup ? (
+                <>
+                  Already have an account?{" "}
+                  <button onClick={() => router.push("/login")}>Sign in</button>
+                </>
+              ) : (
+                <span style={{ color: "var(--tx-3)" }}>
+                  Invite-only — ask an admin to create your account.
+                </span>
+              )}
             </div>
 
             <div className="selfhost">
