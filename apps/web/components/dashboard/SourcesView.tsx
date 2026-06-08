@@ -263,7 +263,10 @@ function AddSourceModal({
                   ariaLabel="Repository"
                   options={(repos.data ?? []).map((r) => ({ value: r.full_name, label: r.full_name }))}
                 />
-                <p className="modal-note">Connected as @{project.github_login}. We index the default branch.</p>
+                <p className="modal-note">
+                  Connected as @{project.github_login}. We index the default branch and set up real-time
+                  updates automatically — no GitHub settings to touch.
+                </p>
               </>
             ) : (
               <>

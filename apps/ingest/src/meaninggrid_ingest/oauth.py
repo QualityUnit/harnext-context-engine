@@ -200,6 +200,32 @@ async def slack_exchange(client_id: str, client_secret: str, code: str, redirect
     }
 
 
+async def github_create_webhook(token: str, repo: str, url: str, secret: str) -> str | None:
+    """Idempotently register a push/issues/PR/comment webhook on ``repo`` (needs
+    the OAuth ``repo`` scope, which includes hook admin). Returns the new hook id,
+    or None if one with this ``url`` already exists. Raises OAuthError otherwise."""
+    hdr = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    async with httpx.AsyncClient(timeout=20) as c:
+        existing = await c.get(f"https://api.github.com/repos/{repo}/hooks", headers=hdr)
+        if existing.status_code == 200:
+            for h in existing.json():
+                if (h.get("config") or {}).get("url") == url:
+                    return None  # already registered — nothing to do
+        r = await c.post(
+            f"https://api.github.com/repos/{repo}/hooks",
+            headers=hdr,
+            json={
+                "name": "web",
+                "active": True,
+                "events": ["push", "issues", "pull_request", "issue_comment"],
+                "config": {"url": url, "content_type": "json", "secret": secret, "insecure_ssl": "0"},
+            },
+        )
+        if r.status_code not in (200, 201):
+            raise OAuthError(f"github hook create {r.status_code}: {r.text[:200]}")
+        return str(r.json().get("id"))
+
+
 async def github_list_repos(token: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=20) as c:
         r = await c.get(

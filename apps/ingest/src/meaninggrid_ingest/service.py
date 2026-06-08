@@ -4,6 +4,7 @@ pulls a source's activity into the raw Kafka topic."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -25,9 +26,13 @@ from meaninggrid_shared import (
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors import get_connector
+from meaninggrid_ingest.connectors.github import normalize_repo
 from meaninggrid_ingest.security import hash_password, verify_password
 from meaninggrid_ingest.settings import IngestSettings
+
+log = logging.getLogger("ingest.service")
 
 
 class ProducerLike(Protocol):
@@ -317,7 +322,24 @@ class SourceService:
             s.add(src)
             await s.commit()
             await s.refresh(src)
+        if kind == "github":
+            await self._ensure_github_webhook(proj, str(config.get("repo", "")))
         return src
+
+    async def _ensure_github_webhook(self, proj: Project, repo: str) -> None:
+        """One-click real-time: auto-register the repo webhook using the project's
+        OAuth token. Best-effort — if it can't (no OAuth token, no server secret,
+        or no admin on the repo), the source still works via polling."""
+        if not (repo and proj.github_token and self.s.github_webhook_secret):
+            return
+        url = f"{self.s.oauth_redirect_base}/webhooks/github"
+        try:
+            await oauth.github_create_webhook(
+                proj.github_token, normalize_repo(repo), url, self.s.github_webhook_secret
+            )
+            log.info("registered github webhook for %s", repo)
+        except Exception as e:  # noqa: BLE001 — best-effort; polling still works
+            log.warning("github webhook setup for %s failed (%s); using polling", repo, e)
 
     async def list_sources(self, project_id: str | None) -> list[Source]:
         async with self.sm() as s:

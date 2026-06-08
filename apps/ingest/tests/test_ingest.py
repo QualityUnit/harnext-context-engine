@@ -352,6 +352,34 @@ async def test_github_webhook_endpoint(tmp_path):
         await engine.dispose()
 
 
+async def test_github_source_autoregisters_webhook(tmp_path, monkeypatch):
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        svc.s = IngestSettings(github_webhook_secret="ghsecret", oauth_redirect_base="https://x.dev/api")
+        calls = []
+
+        async def fake_create(token, repo, url, secret):
+            calls.append((token, repo, url, secret))
+            return "hook-1"
+
+        monkeypatch.setattr("meaninggrid_ingest.oauth.github_create_webhook", fake_create)
+
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        await svc.set_github_token(p.id, "alice", "ghp_oauth")
+        # a pasted URL is normalized to owner/name for the API call
+        await svc.create_source(p.id, "github", {"repo": "https://github.com/acme/web"}, None)
+        assert calls == [("ghp_oauth", "acme/web", "https://x.dev/api/webhooks/github", "ghsecret")]
+
+        # no server secret -> auto-registration is skipped (polling still works)
+        calls.clear()
+        svc.s = IngestSettings(github_webhook_secret=None)
+        await svc.create_source(p.id, "github", {"repo": "acme/web2"}, None)
+        assert calls == []
+    finally:
+        await engine.dispose()
+
+
 def test_oauth_state():
     s = oauth.new_state("proj1", "github")
     assert oauth.consume_state(s) == ("proj1", "github")
