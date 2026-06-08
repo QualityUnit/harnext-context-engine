@@ -285,3 +285,30 @@ class McpRequest(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# --------------------------------------------------------------------------
+# Polling scheduler state (Celery beat)
+# --------------------------------------------------------------------------
+
+
+class SourcePollState(Base):
+    """Per-source polling watermark for the Celery-beat scheduler.
+
+    A source is *due* when ``now - last_checked_at >= interval_seconds`` (default
+    1h). Kept separate from ``Source.last_sync_at`` (which only advances on a
+    *successful* sync) so the scheduler tracks each claim/attempt and the cadence
+    can be tuned per source. Beat ticks every minute, claims the due sources
+    (stamping ``last_checked_at``) and enqueues a poll for each. ``org_id`` mirrors
+    the owning source's project so it's cleaned up with the rest of a tenant.
+    """
+
+    __tablename__ = "source_poll_state"
+
+    source_id: Mapped[str] = mapped_column(String(64), ForeignKey("sources.id"), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(64))  # == project id (tenant cleanup)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=3600)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

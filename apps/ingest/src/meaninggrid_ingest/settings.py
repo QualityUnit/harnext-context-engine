@@ -53,3 +53,10 @@ class IngestSettings(BaseSettings):
 
     # Per-sync page sizes (keep first syncs bounded for the MVP).
     github_per_page: int = 30
+
+    # Polling scheduler (Celery + Redis). Beat ticks every poll_beat_interval_seconds;
+    # each tick claims sources whose last check is >= their interval ago (default
+    # poll_default_interval_seconds) and enqueues a poll. Redis is the broker/backend.
+    redis_url: str = "redis://localhost:6379/0"
+    poll_default_interval_seconds: int = 3600
+    poll_beat_interval_seconds: int = 60
