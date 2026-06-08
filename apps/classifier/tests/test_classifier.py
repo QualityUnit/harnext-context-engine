@@ -26,16 +26,21 @@ def _ev(
     )
 
 
-def test_rules_floor():
-    assert rules_match(_ev("1", type="com.github.issue", data={"labels": ["P0"], "title": "x"}))
-    assert rules_match(
-        _ev("2", type="com.slack.message", source="slack:C1", data={"text": "<!here> help"})
+def test_rules_floor_disabled():
+    # No rules are configured yet (they become dashboard-configurable later), so the
+    # floor is a no-op: every event returns None and routing falls to the scorer.
+    assert rules_match(_ev("1", type="com.github.issue", data={"labels": ["P0"]})) is None
+    assert (
+        rules_match(_ev("2", type="com.slack.message", source="slack:C1", data={"text": "<!here>"}))
+        is None
     )
-    assert rules_match(_ev("3", data={"urgency": "P0"}))
-    assert rules_match(
-        _ev("4", type="com.github.issue", data={"title": "prod outage now", "labels": []})
+    assert (
+        rules_match(
+            _ev("3", type="com.discord.message", source="discord:G1:CH1", data={"text": "@everyone"})
+        )
+        is None
     )
-    assert rules_match(_ev("5", type="com.github.commit", data={"message": "routine"})) is None
+    assert rules_match(_ev("4", data={"urgency": "P0"})) is None
 
 
 async def _scorer(tmp_path, min_samples=3):
@@ -92,42 +97,21 @@ async def test_window_closes_on_gap_and_flush():
     assert len(units) == 1
 
 
-async def test_router(tmp_path):
+async def test_router(tmp_path, monkeypatch):
     scorer, engine, settings = await _scorer(tmp_path)
     try:
         router = Router(scorer, settings)
-        # rule → fast
+        # a matched rule → fast. Rules are a no-op for now (dashboard-configurable
+        # later), so patch one in to exercise the router's fast-via-rule path.
+        monkeypatch.setattr("meaninggrid_classifier.router.rules_match", lambda e: "rule:test")
         d1 = await router.decide(_ev("i", type="com.github.issue", data={"labels": ["security"]}))
-        assert d1.lane == "fast" and d1.reason.startswith("rule:")
-        # normal, no baseline → batch
+        assert d1.lane == "fast" and d1.reason == "rule:test"
+        # no rule + no baseline → batch
+        monkeypatch.setattr("meaninggrid_classifier.router.rules_match", lambda e: None)
         d2 = await router.decide(_ev("n", subject="repo:other", data={}))
         assert d2.lane == "batch"
     finally:
         await engine.dispose()
-
-
-def test_rules_discord():
-    assert (
-        rules_match(
-            _ev("d1", type="com.discord.message", source="discord:G1:CH1",
-                data={"text": "@everyone ping"})
-        )
-        == "rule:discord-mention"
-    )
-    assert (
-        rules_match(
-            _ev("d2", type="com.discord.message", source="discord:G1:CH1",
-                data={"text": "prod outage"})
-        )
-        == "rule:discord-urgent-word"
-    )
-    assert (
-        rules_match(
-            _ev("d3", type="com.discord.message", source="discord:G1:CH1",
-                data={"text": "lunch?"})
-        )
-        is None
-    )
 
 
 async def _collect(units, cu):
