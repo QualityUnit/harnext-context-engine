@@ -1,6 +1,6 @@
 from meaninggrid_builder.harness.base import (
-    FS_TOOLS,
-    NET_TOOLS,
+    ALLOWED_TOOLS,
+    DENIED_TOOLS,
     ConversationTranscript,
     Harness,
     HarnessRequest,
@@ -9,8 +9,8 @@ from meaninggrid_builder.harness.base import (
 from meaninggrid_builder.harness.registry import get_harness
 
 __all__ = [
-    "FS_TOOLS",
-    "NET_TOOLS",
+    "ALLOWED_TOOLS",
+    "DENIED_TOOLS",
     "ConversationTranscript",
     "Harness",
     "HarnessRequest",

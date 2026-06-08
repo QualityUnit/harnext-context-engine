@@ -1,9 +1,17 @@
 """Claude Code harness — drives the Claude Agent SDK in-process.
 
-Requires ``ANTHROPIC_API_KEY`` and the Claude Code CLI on PATH (the SDK shells
-out to it). Runs headless: ``permission_mode=bypassPermissions`` so edits never
-block, with a filesystem-only tool whitelist + network blocklist so the agent
-can only edit the mounted context FS.
+Requires the Claude Code CLI on PATH (the SDK shells out to it) and either an
+``ANTHROPIC_API_KEY`` or seeded OAuth credentials. Runs headless and
+least-privilege:
+
+  * ``permission_mode=dontAsk`` — any tool not in ``allowed_tools`` is denied
+    (not prompted), so the whitelist is real (default-deny). ``bypassPermissions``
+    would instead auto-approve *every* tool and ignore the whitelist.
+  * ``sandbox`` — Bash is allowed but OS-sandboxed (needs ``bubblewrap`` +
+    ``socat`` in the image): writes are confined to ``working_dir`` and network
+    egress is denied. ``allowUnsandboxedCommands=False`` means Bash refuses to
+    run when the sandbox can't initialize, so a misconfigured host can never run
+    Bash unconfined. WebFetch uses a separate network path and is unaffected.
 """
 
 from __future__ import annotations
@@ -70,7 +78,14 @@ class ClaudeCodeHarness:
             system_prompt=req.system_prompt,
             allowed_tools=req.allowed_tools,
             disallowed_tools=req.disallowed_tools,
-            permission_mode="bypassPermissions",
+            permission_mode="dontAsk",  # default-deny: only allowed_tools run, no prompts
+            sandbox={
+                "enabled": True,
+                "autoAllowBashIfSandboxed": True,  # sandboxed Bash runs without prompts (headless)
+                "allowUnsandboxedCommands": False,  # fail closed: no unsandboxed Bash, ever
+                "enableWeakerNestedSandbox": True,  # required inside the unprivileged Docker container
+                "network": {"allowedDomains": []},  # deny Bash network egress (WebFetch is a separate path)
+            },
             max_turns=req.max_turns,
             model=req.model,
             setting_sources=["project"],  # auto-load ./CLAUDE.md from the mount

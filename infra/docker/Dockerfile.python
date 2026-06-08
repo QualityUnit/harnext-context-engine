@@ -31,12 +31,17 @@ RUN uv sync --frozen --all-packages --no-dev
 # ---- runtime stage ---------------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime
 
-# git  -> the AgentFS "git" backend (one git repo per org; snapshots = commits)
-# node -> the Claude Code CLI, which the Agent SDK shells out to (builder + mcp)
-# gosu -> drop from root (needed to chown mounted volumes) to the app user
-#         (Claude Code refuses --dangerously-skip-permissions as root)
+# git              -> the AgentFS "git" backend (one repo per org; snapshots = commits)
+# node             -> the Claude Code CLI, which the Agent SDK shells out to (builder + mcp)
+# gosu             -> drop from root (needed to chown mounted volumes) to the app user
+#                     (Claude Code refuses --dangerously-skip-permissions as root)
+# bubblewrap+socat -> the Claude Code bash sandbox (the builder allows Bash, but
+#                     OS-sandboxed: writes confined to the working dir, network
+#                     denied). Missing them makes sandbox init fail; the harness
+#                     sets failIfUnavailable so that errors out rather than
+#                     silently running Bash unconfined.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates gosu curl gnupg \
+    && apt-get install -y --no-install-recommends git ca-certificates gosu curl gnupg bubblewrap socat \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code \
