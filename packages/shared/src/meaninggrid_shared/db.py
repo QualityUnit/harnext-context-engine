@@ -101,23 +101,29 @@ class Project(Base):
     # Discord uses an app-level bot token (env); only the connected guild is per-project.
     discord_guild_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     discord_guild_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # LiveAgent is self-hosted with a per-install base URL + v3 API key (no OAuth).
+    # The key is the secret; the base URL is not, so it can be shown back in the UI.
+    liveagent_base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    liveagent_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Source(Base):
     """A connected data source (a GitHub repo, a Slack channel, …).
 
     ``config_json`` carries kind-specific config, e.g.
-        github: {"repo": "owner/name"}
-        slack:  {"channel_id": "C123", "channel_name": "general"}
-    ``secret`` holds the access token (plaintext in v1; an encrypted vault is
-    future work). ``cursor`` is the incremental-sync watermark.
+        github:    {"repo": "owner/name"}
+        slack:     {"channel_id": "C123", "channel_name": "general"}
+        liveagent: {"base_url": "https://x.ladesk.com", "department_id": "abc",
+                    "department_name": "Support", "tag_id": "t1", "tag_name": "vip"}
+    ``secret`` holds the access token / API key (plaintext in v1; an encrypted
+    vault is future work). ``cursor`` is the incremental-sync watermark.
     """
 
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
     org_id: Mapped[str] = mapped_column(String(64), ForeignKey("projects.id"))  # project id
-    kind: Mapped[str] = mapped_column(String(32))  # github | slack
+    kind: Mapped[str] = mapped_column(String(32))  # github | slack | discord | liveagent
     config_json: Mapped[str] = mapped_column(Text)
     secret: Mapped[str | None] = mapped_column(Text, nullable=True)
 

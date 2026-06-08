@@ -218,6 +218,9 @@ class SourceService:
             elif kind == "discord":
                 proj.discord_guild_id = None
                 proj.discord_guild_name = None
+            elif kind == "liveagent":
+                proj.liveagent_base_url = None
+                proj.liveagent_api_key = None
             srcs = list(
                 (
                     await s.execute(
@@ -318,6 +321,18 @@ class SourceService:
                 proj.discord_guild_name = guild_name
                 await s.commit()
 
+    async def set_liveagent_integration(
+        self, project_id: str, base_url: str, api_key: str
+    ) -> None:
+        """Store a project's LiveAgent base URL + v3 API key (no OAuth). Sources
+        snapshot these at create time (base URL → config, key → secret)."""
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj:
+                proj.liveagent_base_url = base_url
+                proj.liveagent_api_key = api_key
+                await s.commit()
+
     # -- sources -----------------------------------------------------------
     async def create_source(
         self, project_id: str, kind: str, config: dict, secret: str | None = None
@@ -327,6 +342,8 @@ class SourceService:
             raise KeyError(project_id)
         if kind == "discord" and proj.discord_guild_id and not config.get("guild_id"):
             config = {**config, "guild_id": proj.discord_guild_id}  # server-authoritative guild
+        if kind == "liveagent" and proj.liveagent_base_url and not config.get("base_url"):
+            config = {**config, "base_url": proj.liveagent_base_url}  # the integration's install
         if secret is None:  # reuse the project/app credential for this kind
             secret = (
                 proj.github_token
@@ -335,6 +352,8 @@ class SourceService:
                 if kind == "slack"
                 else self.s.discord_bot_token
                 if kind == "discord"
+                else proj.liveagent_api_key
+                if kind == "liveagent"
                 else None
             )
         src = Source(

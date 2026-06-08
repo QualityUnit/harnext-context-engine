@@ -77,6 +77,7 @@ const PROVIDERS = {
   github: { name: "GitHub", noun: "repositories", scope: "repo · read" },
   slack: { name: "Slack", noun: "channels", scope: "channels:history" },
   discord: { name: "Discord", noun: "channels", scope: "Read Message History" },
+  liveagent: { name: "LiveAgent", noun: "departments", scope: "API v3 · read" },
   youtube: { name: "YouTube", noun: "channels", scope: "public captions" },
 } as const;
 
@@ -103,7 +104,9 @@ function IntegrationCard({
         ? Icon.slack
         : kind === "discord"
           ? Icon.discord
-          : Icon.youtube;
+          : kind === "liveagent"
+            ? Icon.liveagent
+            : Icon.youtube;
   return (
     <div className="int-card">
       <div className="int-head">
@@ -175,10 +178,12 @@ function IntegrationSettings({
   const gh = sources.filter((s) => s.kind === "github");
   const sl = sources.filter((s) => s.kind === "slack");
   const dc = sources.filter((s) => s.kind === "discord");
+  const la = sources.filter((s) => s.kind === "liveagent");
   const yt = sources.filter((s) => s.kind === "youtube");
   const showGh = project.github_connected || gh.length > 0;
   const showSl = project.slack_connected || sl.length > 0;
   const showDc = project.discord_connected || dc.length > 0;
+  const showLa = project.liveagent_connected || la.length > 0;
   // YouTube has no OAuth "connected" state — surface it once it has sources.
   const showYt = yt.length > 0;
 
@@ -216,6 +221,15 @@ function IntegrationSettings({
           onDisconnect={onDisconnect}
         />
       )}
+      {showLa && (
+        <IntegrationCard
+          kind="liveagent"
+          account={project.liveagent_base_url ?? ""}
+          sources={la}
+          onRemove={onRemove}
+          onDisconnect={onDisconnect}
+        />
+      )}
       {showYt && (
         <IntegrationCard
           kind="youtube"
@@ -225,10 +239,10 @@ function IntegrationSettings({
           onDisconnect={onDisconnect}
         />
       )}
-      {!showGh && !showSl && !showDc && !showYt && (
+      {!showGh && !showSl && !showDc && !showLa && !showYt && (
         <div className="int-empty big">
           No integrations connected. Add a source from the Sources view to connect GitHub, Slack,
-          Discord or YouTube.
+          Discord, LiveAgent or YouTube.
         </div>
       )}
 

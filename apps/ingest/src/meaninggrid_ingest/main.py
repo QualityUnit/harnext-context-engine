@@ -23,14 +23,16 @@ from meaninggrid_shared import (
 )
 
 from meaninggrid_ingest import oauth
-from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector
+from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.schemas import (
     AnalyticsOut,
     AuthOut,
     BuildOut,
     ChannelOut,
+    DepartmentOut,
     EventOut,
+    LiveAgentConnectIn,
     LoginIn,
     McpInfoOut,
     McpRequestOut,
@@ -43,6 +45,7 @@ from meaninggrid_ingest.schemas import (
     SourceCreate,
     SourceOut,
     SyncOut,
+    TagOut,
     UserOut,
 )
 from meaninggrid_ingest.security import create_token, decode_token
@@ -123,6 +126,8 @@ def _project_out(p: Project) -> ProjectOut:
         slack_connected=bool(p.slack_token),
         discord_guild_name=p.discord_guild_name,
         discord_connected=bool(p.discord_guild_id),
+        liveagent_base_url=p.liveagent_base_url,
+        liveagent_connected=bool(p.liveagent_api_key),
     )
 
 
@@ -355,7 +360,7 @@ async def project_mcp_requests(
 
 @app.delete("/projects/{project_id}/integrations/{provider}")
 async def disconnect_provider(project_id: str, provider: str, svc: SvcDep, user: UserDep) -> dict:
-    if provider not in ("github", "slack", "discord", "youtube"):
+    if provider not in ("github", "slack", "discord", "liveagent", "youtube"):
         raise HTTPException(400, "unknown provider")
     await _owned_project(svc, user, project_id)
     await svc.disconnect_provider(project_id, provider)
@@ -464,6 +469,56 @@ async def discord_channels(
     if not cfg.discord_bot_token:
         raise HTTPException(503, "discord bot token not configured")
     return await oauth.discord_list_channels(p.discord_guild_id, cfg.discord_bot_token)
+
+
+# -- LiveAgent integration (no OAuth — a per-install base URL + v3 API key) --
+@app.put("/projects/{project_id}/integrations/liveagent", response_model=ProjectOut)
+async def connect_liveagent(
+    project_id: str, body: LiveAgentConnectIn, svc: SvcDep, user: UserDep
+) -> ProjectOut:
+    """Validate a LiveAgent base URL + v3 API key (by listing departments) and
+    store them on the project. Returns the updated project."""
+    await _owned_project(svc, user, project_id)
+    base = liveagent.normalize_base_url(body.base_url)
+    if not body.api_key.strip():
+        raise HTTPException(400, "an API key is required")
+    try:
+        await liveagent.verify_credentials(base, body.api_key)
+    except Exception as e:  # noqa: BLE001 — surfaced to the user as a 400
+        raise HTTPException(400, f"could not reach LiveAgent: {e}") from e
+    await svc.set_liveagent_integration(project_id, base, body.api_key)
+    proj = await svc.get_project(project_id)
+    assert proj is not None
+    return _project_out(proj)
+
+
+async def _liveagent_creds(svc: SourceService, user: User, project_id: str) -> tuple[str, str]:
+    p = await _owned_project(svc, user, project_id)
+    if not (p.liveagent_base_url and p.liveagent_api_key):
+        raise HTTPException(400, "LiveAgent not connected for this project")
+    return p.liveagent_base_url, p.liveagent_api_key
+
+
+@app.get("/liveagent/departments", response_model=list[DepartmentOut])
+async def liveagent_departments(
+    svc: SvcDep, user: UserDep, project_id: Annotated[str, Query()]
+) -> list[dict]:
+    base, key = await _liveagent_creds(svc, user, project_id)
+    try:
+        return await liveagent.list_departments(base, key)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"LiveAgent error: {e}") from e
+
+
+@app.get("/liveagent/tags", response_model=list[TagOut])
+async def liveagent_tags(
+    svc: SvcDep, user: UserDep, project_id: Annotated[str, Query()]
+) -> list[dict]:
+    base, key = await _liveagent_creds(svc, user, project_id)
+    try:
+        return await liveagent.list_tags(base, key)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"LiveAgent error: {e}") from e
 
 
 # -- sources ---------------------------------------------------------------

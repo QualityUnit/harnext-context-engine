@@ -7,10 +7,12 @@ import {
   fetcher,
   type Analytics,
   type Channel,
+  type Department,
   type Health,
   type Project,
   type Repo,
   type Source,
+  type Tag,
 } from "@/lib/api";
 import { formatBytes, rel, sourceName, uiStatus, STATUS } from "@/lib/sourceDisplay";
 import { Icon } from "@/components/DashIcons";
@@ -58,16 +60,18 @@ function SourceCard({
       ? Icon.github
       : s.kind === "discord"
         ? Icon.discord
-        : s.kind === "youtube"
-          ? Icon.youtube
-          : s.kind === "sitemap"
-            ? Icon.globe
-            : Icon.slack;
+        : s.kind === "liveagent"
+          ? Icon.liveagent
+          : s.kind === "youtube"
+            ? Icon.youtube
+            : s.kind === "sitemap"
+              ? Icon.globe
+              : Icon.slack;
   const noun =
     s.kind === "github"
       ? "repository"
-      : s.kind === "youtube"
-        ? "channel"
+      : s.kind === "liveagent"
+        ? "department"
         : s.kind === "sitemap"
           ? "website"
           : "channel";
@@ -159,11 +163,16 @@ function AddSourceModal({
   onAdded: () => void;
 }) {
   const [step, setStep] = useState<
-    "pick" | "github" | "slack" | "discord" | "youtube" | "sitemap"
+    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap"
   >("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
   const [channel, setChannel] = useState("");
+  const [baseUrl, setBaseUrl] = useState(project.liveagent_base_url ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [dept, setDept] = useState("");
+  const [tag, setTag] = useState("");
+  const [laConnected, setLaConnected] = useState(project.liveagent_connected);
   const [ytUrl, setYtUrl] = useState("");
   const [ytName, setYtName] = useState("");
   const [sitemapUrl, setSitemapUrl] = useState("");
@@ -185,13 +194,37 @@ function AddSourceModal({
       : null,
     fetcher,
   );
+  const departments = useSWR<Department[]>(
+    step === "liveagent" && laConnected ? `/liveagent/departments?project_id=${project.id}` : null,
+    fetcher,
+  );
+  const tags = useSWR<Tag[]>(
+    step === "liveagent" && laConnected ? `/liveagent/tags?project_id=${project.id}` : null,
+    fetcher,
+  );
   const health = useSWR<Health>("/health", fetcher);
   const ghOauth = !!health.data?.oauth.github;
   const slackOauth = !!health.data?.oauth.slack;
   const discordOauth = !!health.data?.oauth.discord;
 
+  // LiveAgent has no OAuth: store the base URL + key, then reveal the dept picker.
+  async function connectLiveAgent() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.connectLiveAgent(project.id, baseUrl.trim(), apiKey.trim());
+    } catch (e) {
+      setErr(errMsg(e));
+      setBusy(false);
+      return;
+    }
+    setLaConnected(true);
+    onAdded(); // refresh the parent project so Settings reflects the integration
+    setBusy(false);
+  }
+
   async function connect(
-    kind: "github" | "slack" | "discord" | "youtube" | "sitemap",
+    kind: "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -242,9 +275,11 @@ function AddSourceModal({
           ? "Connect a Slack channel"
           : step === "discord"
             ? "Connect a Discord channel"
-            : step === "youtube"
-              ? "Add a YouTube channel"
-              : "Crawl a website";
+            : step === "liveagent"
+              ? "Connect a LiveAgent department"
+              : step === "youtube"
+                ? "Add a YouTube channel"
+                : "Crawl a website";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -293,6 +328,18 @@ function AddSourceModal({
                 <span>
                   <span className="pick-name">Discord channel</span>
                   <span className="pick-sub">Server messages &amp; context</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
+              <button className="pick-card" onClick={() => setStep("liveagent")}>
+                <span className="src-ic liveagent lg">
+                  <Icon.liveagent size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">LiveAgent department</span>
+                  <span className="pick-sub">Helpdesk tickets &amp; conversations</span>
                 </span>
                 <span className="pick-go">
                   <Icon.chevronR size={15} />
@@ -599,6 +646,143 @@ function AddSourceModal({
           </div>
         )}
 
+        {step === "liveagent" && (
+          <div className="modal-body">
+            {laConnected ? (
+              <>
+                <label className="field-label">Department</label>
+                <Select
+                  value={dept}
+                  onChange={setDept}
+                  loading={!departments.data}
+                  icon={<Icon.liveagent size={15} />}
+                  placeholder="Select a department…"
+                  emptyText="No departments found"
+                  ariaLabel="Department"
+                  options={(departments.data ?? []).map((d) => ({ value: d.id, label: d.name }))}
+                />
+                <label className="field-label" style={{ marginTop: 12 }}>
+                  Tag <span style={{ color: "var(--tx-3)" }}>· optional</span>
+                </label>
+                <Select
+                  value={tag}
+                  onChange={setTag}
+                  loading={!tags.data}
+                  icon={<Icon.link size={15} />}
+                  placeholder="Any tag"
+                  emptyText="No tags found"
+                  ariaLabel="Tag"
+                  options={[
+                    { value: "", label: "Any tag" },
+                    ...(tags.data ?? []).map((t) => ({ value: t.id, label: `#${t.name}` })),
+                  ]}
+                />
+                <p className="modal-note">
+                  {project.liveagent_base_url ? `${project.liveagent_base_url} · ` : ""}tickets are
+                  walked oldest-first and indexed with their conversation, then kept current on each
+                  sync.
+                </p>
+                {err && <p className="modal-err">{err}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={busy || !dept}
+                    onClick={() => {
+                      const d = departments.data?.find((x) => x.id === dept);
+                      if (!d) return;
+                      const t = tags.data?.find((x) => x.id === tag);
+                      const config: Record<string, unknown> = {
+                        department_id: d.id,
+                        department_name: d.name,
+                      };
+                      if (t) {
+                        config.tag_id = t.id;
+                        config.tag_name = t.name;
+                      }
+                      connect("liveagent", config);
+                    }}
+                  >
+                    <Icon.plus size={15} />
+                    {busy ? "Connecting…" : "Connect department"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="modal-note">
+                  Connect your LiveAgent helpdesk with its base URL and a v3 API key (read-only).
+                  You&apos;ll pick a department after connecting.
+                </p>
+                <label className="field-label">Base URL</label>
+                <div className="field">
+                  <span className="field-ic">
+                    <Icon.link size={15} />
+                  </span>
+                  <input
+                    autoFocus
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="https://yourcompany.ladesk.com"
+                  />
+                </div>
+                <label className="field-label" style={{ marginTop: 12 }}>
+                  API key <span style={{ color: "var(--tx-3)" }}>· API v3</span>
+                </label>
+                <div className="field">
+                  <span className="field-ic">
+                    <Icon.liveagent size={15} />
+                  </span>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="your v3 API key"
+                  />
+                </div>
+                <p className="modal-note">
+                  Generate a v3 API key in LiveAgent under{" "}
+                  <button className="help-toggle" onClick={() => setShowHelp((s) => !s)}>
+                    {showHelp ? "hide steps" : "Configuration → System → API"}
+                  </button>
+                  .
+                </p>
+                {showHelp && (
+                  <div className="token-help">
+                    <b>LiveAgent v3 API key</b>
+                    <ol>
+                      <li>
+                        In your LiveAgent agent panel, open <b>Configuration → System → API</b>.
+                      </li>
+                      <li>
+                        Under <b>API V3</b>, create a new API key (a read-only role is enough —
+                        MeaningGrid only ever reads).
+                      </li>
+                      <li>Copy the key and paste it above, along with your install&apos;s base URL.</li>
+                    </ol>
+                  </div>
+                )}
+                {err && <p className="modal-err">{err}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={busy || !baseUrl.trim() || !apiKey.trim()}
+                    onClick={connectLiveAgent}
+                  >
+                    <Icon.liveagent size={15} />
+                    {busy ? "Connecting…" : "Connect LiveAgent"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {step === "youtube" && (
           <div className="modal-body">
             <label className="field-label">Channel</label>
@@ -805,7 +989,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub, Slack, Discord, YouTube or a website</span>
+          <span className="add-sub">GitHub, Slack, Discord, LiveAgent, YouTube or a website</span>
         </button>
       </div>
 

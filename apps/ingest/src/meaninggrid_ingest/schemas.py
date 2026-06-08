@@ -65,13 +65,20 @@ class ProjectOut(BaseModel):
     slack_connected: bool
     discord_guild_name: str | None
     discord_connected: bool
+    liveagent_base_url: str | None
+    liveagent_connected: bool
 
 
 class SourceCreate(BaseModel):
     project_id: str
-    kind: str  # github | slack | discord | youtube
+    kind: str  # github | slack | discord | liveagent | youtube
     config: dict[str, Any]
     secret: str | None = None  # optional manual token; else the project's OAuth token
+
+
+class LiveAgentConnectIn(BaseModel):
+    base_url: str
+    api_key: str
 
 
 class SourceOut(BaseModel):
@@ -138,5 +145,15 @@ class RepoOut(BaseModel):
 
 
 class ChannelOut(BaseModel):
+    id: str
+    name: str
+
+
+class DepartmentOut(BaseModel):
+    id: str
+    name: str
+
+
+class TagOut(BaseModel):
     id: str
     name: str
