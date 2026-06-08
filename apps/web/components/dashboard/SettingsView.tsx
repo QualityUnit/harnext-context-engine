@@ -78,6 +78,7 @@ const PROVIDERS = {
   slack: { name: "Slack", noun: "channels", scope: "channels:history" },
   discord: { name: "Discord", noun: "channels", scope: "Read Message History" },
   liveagent: { name: "LiveAgent", noun: "departments", scope: "API v3 · read" },
+  youtube: { name: "YouTube", noun: "channels", scope: "public captions" },
 } as const;
 
 type ProviderKind = keyof typeof PROVIDERS;
@@ -103,7 +104,9 @@ function IntegrationCard({
         ? Icon.slack
         : kind === "discord"
           ? Icon.discord
-          : Icon.liveagent;
+          : kind === "liveagent"
+            ? Icon.liveagent
+            : Icon.youtube;
   return (
     <div className="int-card">
       <div className="int-head">
@@ -176,10 +179,13 @@ function IntegrationSettings({
   const sl = sources.filter((s) => s.kind === "slack");
   const dc = sources.filter((s) => s.kind === "discord");
   const la = sources.filter((s) => s.kind === "liveagent");
+  const yt = sources.filter((s) => s.kind === "youtube");
   const showGh = project.github_connected || gh.length > 0;
   const showSl = project.slack_connected || sl.length > 0;
   const showDc = project.discord_connected || dc.length > 0;
   const showLa = project.liveagent_connected || la.length > 0;
+  // YouTube has no OAuth "connected" state — surface it once it has sources.
+  const showYt = yt.length > 0;
 
   return (
     <div className="set-stack">
@@ -224,10 +230,19 @@ function IntegrationSettings({
           onDisconnect={onDisconnect}
         />
       )}
-      {!showGh && !showSl && !showDc && !showLa && (
+      {showYt && (
+        <IntegrationCard
+          kind="youtube"
+          account=""
+          sources={yt}
+          onRemove={onRemove}
+          onDisconnect={onDisconnect}
+        />
+      )}
+      {!showGh && !showSl && !showDc && !showLa && !showYt && (
         <div className="int-empty big">
           No integrations connected. Add a source from the Sources view to connect GitHub, Slack,
-          Discord or LiveAgent.
+          Discord, LiveAgent or YouTube.
         </div>
       )}
 

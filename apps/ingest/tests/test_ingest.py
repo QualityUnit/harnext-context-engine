@@ -690,3 +690,271 @@ async def test_discord_source_uses_bot_token(tmp_path):
         assert proj.discord_guild_id is None
     finally:
         await engine.dispose()
+
+
+# -- YouTube ----------------------------------------------------------------
+def test_youtube_channel_url_resolution():
+    from meaninggrid_ingest.connectors.youtube import _channel_videos_url
+
+    assert _channel_videos_url({"channel_url": "https://x/y"}) == "https://x/y"
+    assert (
+        _channel_videos_url({"channel_id": "@handle"}) == "https://www.youtube.com/@handle/videos"
+    )
+    assert (
+        _channel_videos_url({"channel_id": "UC123"})
+        == "https://www.youtube.com/channel/UC123/videos"
+    )
+    # a bare identifier is treated as a handle
+    assert _channel_videos_url({"channel_id": "bare"}) == "https://www.youtube.com/@bare/videos"
+
+
+def test_youtube_caption_parsers():
+    from meaninggrid_ingest.connectors.youtube import _parse_caption
+
+    json3 = '{"events":[{"segs":[{"utf8":"first "},{"utf8":"clip"}]},{"segs":[]}]}'
+    assert _parse_caption(json3, "json3") == "first clip"
+
+    vtt = "WEBVTT\n\n00:00.000 --> 00:02.000\nsecond video\n\n00:02.000 --> 00:04.000\nsecond video\ncaptions here\n"
+    assert _parse_caption(vtt, "vtt") == "second video captions here"  # consecutive dup collapsed
+
+    xml = '<?xml version="1.0"?><transcript><text start="0" dur="2">third &amp; final</text><text start="2" dur="2">video</text></transcript>'
+    assert _parse_caption(xml, "srv1") == "third & final video"
+
+
+def test_youtube_track_selection():
+    from meaninggrid_ingest.connectors.youtube import _select_track
+
+    info = {
+        "subtitles": {
+            "en": [{"ext": "json3", "url": "manual-en"}],
+            "fr": [{"ext": "vtt"}],
+        },
+        "automatic_captions": {"en": [{"ext": "json3", "url": "auto-en"}]},
+    }
+    # preferred lang, manual subtitle wins over the auto-caption
+    lang, fmts = _select_track(info, ["en"])
+    assert lang == "en" and fmts[0]["url"] == "manual-en"
+    # preferred lang only present as an auto-caption → use it
+    lang, fmts = _select_track({"automatic_captions": info["automatic_captions"]}, ["en"])
+    assert lang == "en" and fmts[0]["url"] == "auto-en"
+    # none of the preferred langs exist → fall back to any available track
+    lang, fmts = _select_track(info, ["de"])
+    assert lang in ("en", "fr")
+    # no captions at all
+    assert _select_track({}, ["en"]) == (None, None)
+
+
+class _Caps:
+    """Minimal httpx-style response carrying a caption body."""
+
+    def __init__(self, text):
+        self.text = text
+        self.status_code = 200
+
+    def raise_for_status(self):
+        pass
+
+
+async def test_youtube_connector_builds_events(monkeypatch):
+    import httpx
+    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+
+    # Channel Videos tab is newest-first; each video resolves to its captions.
+    listing = {
+        "entries": [
+            {
+                "id": "vid3",
+                "url": "https://www.youtube.com/watch?v=vid3",
+                "title": "Third",
+            },
+            {
+                "id": "vid2",
+                "url": "https://www.youtube.com/watch?v=vid2",
+                "title": "Second",
+            },
+            {
+                "id": "vid1",
+                "url": "https://www.youtube.com/watch?v=vid1",
+                "title": "First",
+            },
+        ]
+    }
+    videos = {
+        "vid1": {  # manual subtitle, json3
+            "title": "First",
+            "timestamp": 1717200000,
+            "channel": "Chan",
+            "webpage_url": "https://youtu.be/vid1",
+            "subtitles": {"en": [{"ext": "json3", "url": "cap://vid1"}]},
+        },
+        "vid2": {  # auto-caption, vtt
+            "title": "Second",
+            "timestamp": 1717300000,
+            "channel": "Chan",
+            "automatic_captions": {"en": [{"ext": "vtt", "url": "cap://vid2"}]},
+        },
+        "vid3": {  # manual subtitle, srv1 xml
+            "title": "Third",
+            "timestamp": 1717400000,
+            "channel": "Chan",
+            "subtitles": {"en": [{"ext": "srv1", "url": "cap://vid3"}]},
+        },
+    }
+    caps = {
+        "cap://vid1": '{"events":[{"segs":[{"utf8":"first "},{"utf8":"clip"}]}]}',
+        "cap://vid2": "WEBVTT\n\n00:00.000 --> 00:02.000\nsecond video\n\n00:02.000 --> 00:04.000\nsecond video\ncaptions here\n",
+        "cap://vid3": "<transcript><text>third &amp; final</text><text>video</text></transcript>",
+    }
+    calls = []
+
+    def fake_extract(url, *, flat, limit=None):
+        calls.append((url, flat))
+        if flat:
+            return listing
+        return videos[url.rsplit("=", 1)[-1]]
+
+    async def fake_get(self, url, params=None, headers=None):
+        return _Caps(caps[url])
+
+    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    res = await YouTubeConnector().fetch(
+        org_id="p1",
+        config={"channel_id": "UC123", "channel_name": "My Channel"},
+        secret=None,
+        since=None,
+    )
+
+    # chronological (oldest first), captions parsed per format
+    assert [e.data["text"] for e in res.events] == [
+        "first clip",
+        "second video captions here",
+        "third & final video",
+    ]
+    assert all(e.mgtenant == "p1" for e in res.events)
+    e = res.events[0]
+    assert e.id == "youtube-UC123-vid1"
+    assert e.source == "youtube:UC123"
+    assert e.type == "com.youtube.caption"
+    assert e.subject == "channel:My Channel"
+    assert e.data["video_id"] == "vid1" and e.data["caption_lang"] == "en"
+    assert e.data["has_caption"] is True and e.data["url"] == "https://youtu.be/vid1"
+    assert res.cursor == "vid3"  # newest enumerated upload
+    assert calls[0] == ("https://www.youtube.com/channel/UC123/videos", True)
+
+
+async def test_youtube_cursor_skips_seen(monkeypatch):
+    import httpx
+    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+
+    listing = {
+        "entries": [
+            {"id": "vid3", "url": "https://www.youtube.com/watch?v=vid3"},
+            {"id": "vid2", "url": "https://www.youtube.com/watch?v=vid2"},
+            {"id": "vid1", "url": "https://www.youtube.com/watch?v=vid1"},
+        ]
+    }
+
+    def fake_extract(url, *, flat, limit=None):
+        if flat:
+            return listing
+        return {
+            "title": "v",
+            "timestamp": 1717400000,
+            "subtitles": {"en": [{"ext": "json3", "url": "cap://x"}]},
+        }
+
+    async def fake_get(self, url, params=None, headers=None):
+        return _Caps('{"events":[{"segs":[{"utf8":"hi"}]}]}')
+
+    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    # cursor at vid2 → only vid3 is new; watermark still advances to newest (vid3)
+    res = await YouTubeConnector().fetch(
+        org_id="p1", config={"channel_id": "UC1"}, secret=None, since="vid2"
+    )
+    assert [e.data["video_id"] for e in res.events] == ["vid3"]
+    assert res.cursor == "vid3"
+
+
+async def test_youtube_video_without_captions(monkeypatch):
+    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+
+    def fake_extract(url, *, flat, limit=None):
+        if flat:
+            return {"entries": [{"id": "vid1", "url": "https://www.youtube.com/watch?v=vid1"}]}
+        return {"title": "No caps", "timestamp": 1717400000}  # no subtitle tracks
+
+    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    res = await YouTubeConnector().fetch(
+        org_id="p1",
+        config={"channel_id": "UC1", "channel_name": "C"},
+        secret=None,
+        since=None,
+    )
+    assert len(res.events) == 1
+    e = res.events[0]
+    assert e.data["has_caption"] is False
+    assert e.data["text"] == "" and e.data["caption_lang"] is None
+
+
+async def test_youtube_derives_channel_key_from_listing(monkeypatch):
+    import httpx
+    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+
+    # Source configured with only a /videos URL → the canonical UC id and the
+    # display name are taken from what yt-dlp reports for the listing, so the
+    # event source/id stay clean instead of embedding the URL.
+    listing = {
+        "channel_id": "UCstableid",
+        "channel": "Stable Name",
+        "entries": [{"id": "vidA", "url": "https://www.youtube.com/watch?v=vidA"}],
+    }
+
+    def fake_extract(url, *, flat, limit=None):
+        if flat:
+            return listing
+        return {
+            "title": "A",
+            "timestamp": 1717400000,
+            "subtitles": {"en": [{"ext": "json3", "url": "cap://a"}]},
+        }
+
+    async def fake_get(self, url, params=None, headers=None):
+        return _Caps('{"events":[{"segs":[{"utf8":"hi"}]}]}')
+
+    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    res = await YouTubeConnector().fetch(
+        org_id="p1",
+        config={"channel_url": "https://www.youtube.com/@stable/videos"},
+        secret=None,
+        since=None,
+    )
+    e = res.events[0]
+    assert e.source == "youtube:UCstableid"
+    assert e.id == "youtube-UCstableid-vidA"
+    assert e.subject == "channel:Stable Name"
+
+
+async def test_youtube_source_create_and_registry(tmp_path):
+    from meaninggrid_ingest.connectors import SUPPORTED_KINDS, get_connector
+    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+
+    assert "youtube" in SUPPORTED_KINDS
+    assert isinstance(get_connector("youtube"), YouTubeConnector)
+
+    svc, engine, _ = await _svc(tmp_path)
+    try:
+        u = await svc.register("a@b.com", "hunter2", "A")
+        p = await svc.create_project(u.id, "P")
+        # YouTube polls public captions — no provider token, so no secret is stored
+        src = await svc.create_source(
+            p.id, "youtube", {"channel_id": "UC1", "channel_name": "C"}, None
+        )
+        assert src.kind == "youtube" and src.secret is None
+    finally:
+        await engine.dispose()

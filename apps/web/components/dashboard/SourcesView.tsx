@@ -62,7 +62,9 @@ function SourceCard({
         ? Icon.discord
         : s.kind === "liveagent"
           ? Icon.liveagent
-          : Icon.slack;
+          : s.kind === "youtube"
+            ? Icon.youtube
+            : Icon.slack;
   const noun =
     s.kind === "github" ? "repository" : s.kind === "liveagent" ? "department" : "channel";
   const watching = st === "live";
@@ -152,7 +154,9 @@ function AddSourceModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [step, setStep] = useState<"pick" | "github" | "slack" | "discord" | "liveagent">("pick");
+  const [step, setStep] = useState<
+    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube"
+  >("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
   const [channel, setChannel] = useState("");
@@ -161,6 +165,8 @@ function AddSourceModal({
   const [dept, setDept] = useState("");
   const [tag, setTag] = useState("");
   const [laConnected, setLaConnected] = useState(project.liveagent_connected);
+  const [ytUrl, setYtUrl] = useState("");
+  const [ytName, setYtName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -209,7 +215,7 @@ function AddSourceModal({
   }
 
   async function connect(
-    kind: "github" | "slack" | "discord" | "liveagent",
+    kind: "github" | "slack" | "discord" | "liveagent" | "youtube",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -224,6 +230,16 @@ function AddSourceModal({
     } catch (e) {
       setErr(errMsg(e));
       setBusy(false);
+      return;
+    }
+    if (kind === "youtube") {
+      // A first YouTube sync downloads every recent video's captions, which is
+      // far too slow to block the modal on — and there's no token to validate.
+      // Kick the backfill off in the background (the scheduler and "Sync now"
+      // also cover it) and keep the source regardless of how that sync goes.
+      api.syncSource(src.id).catch(() => {});
+      onAdded();
+      onClose();
       return;
     }
     // The first sync doubles as a connection test: a private repo with a
@@ -250,7 +266,9 @@ function AddSourceModal({
           ? "Connect a Slack channel"
           : step === "discord"
             ? "Connect a Discord channel"
-            : "Connect a LiveAgent department";
+            : step === "liveagent"
+              ? "Connect a LiveAgent department"
+              : "Add a YouTube channel";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -311,6 +329,18 @@ function AddSourceModal({
                 <span>
                   <span className="pick-name">LiveAgent department</span>
                   <span className="pick-sub">Helpdesk tickets &amp; conversations</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
+              <button className="pick-card" onClick={() => setStep("youtube")}>
+                <span className="src-ic youtube lg">
+                  <Icon.youtube size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">YouTube channel</span>
+                  <span className="pick-sub">Video captions &amp; transcripts</span>
                 </span>
                 <span className="pick-go">
                   <Icon.chevronR size={15} />
@@ -729,6 +759,61 @@ function AddSourceModal({
             )}
           </div>
         )}
+
+        {step === "youtube" && (
+          <div className="modal-body">
+            <label className="field-label">Channel</label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.youtube size={15} />
+              </span>
+              <input
+                autoFocus
+                value={ytUrl}
+                onChange={(e) => setYtUrl(e.target.value)}
+                placeholder="https://youtube.com/@channel  (or @handle / UC… id)"
+              />
+            </div>
+            <label className="field-label" style={{ marginTop: 12 }}>
+              Display name <span style={{ color: "var(--tx-3)" }}>· optional</span>
+            </label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.youtube size={15} />
+              </span>
+              <input
+                value={ytName}
+                onChange={(e) => setYtName(e.target.value)}
+                placeholder="My Channel"
+              />
+            </div>
+            <p className="modal-note">
+              We poll the channel&apos;s uploads and index each video&apos;s captions — public videos
+              only, no sign-in needed. The first backfill runs in the background.
+            </p>
+            {err && <p className="modal-err">{err}</p>}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setStep("pick")}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy || !ytUrl.trim()}
+                onClick={() => {
+                  const v = ytUrl.trim();
+                  const config: Record<string, unknown> = /^https?:\/\//i.test(v)
+                    ? { channel_url: v }
+                    : { channel_id: v };
+                  if (ytName.trim()) config.channel_name = ytName.trim();
+                  connect("youtube", config, null);
+                }}
+              >
+                <Icon.plus size={15} />
+                {busy ? "Adding…" : "Add channel"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -845,7 +930,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub repo, Slack/Discord channel or LiveAgent dept</span>
+          <span className="add-sub">GitHub, Slack, Discord, LiveAgent or YouTube</span>
         </button>
       </div>
 
