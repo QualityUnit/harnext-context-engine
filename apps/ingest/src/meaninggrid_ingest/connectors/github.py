@@ -5,14 +5,17 @@ rate limit). Incremental via the GitHub ``since`` parameter.
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
 import httpx
 from meaninggrid_shared import CloudEvent, utcnow
 
-from meaninggrid_ingest.connectors.base import FetchResult
+from meaninggrid_ingest.connectors.base import EventConnector, FetchResult, PollingConnector
+from meaninggrid_ingest.security import verify_github_signature
 
 _API = "https://api.github.com"
 _BODY_CLIP = 1200
@@ -118,11 +121,23 @@ def webhook_to_events(event: str, repo: str, payload: dict[str, Any]) -> list[di
     return out
 
 
-class GitHubConnector:
+class GitHubConnector(EventConnector, PollingConnector):
     kind = "github"
 
     def __init__(self, per_page: int = 30) -> None:
         self.per_page = per_page
+
+    # -- event (push) ------------------------------------------------------
+    def verify(self, *, secret: str, headers: Mapping[str, str], body: bytes) -> bool:
+        return verify_github_signature(secret, headers.get("X-Hub-Signature-256", ""), body)
+
+    def parse(
+        self, *, headers: Mapping[str, str], body: bytes
+    ) -> tuple[dict | None, list[tuple]]:
+        event = headers.get("X-GitHub-Event", "")
+        if event == "ping":  # GitHub's create-webhook handshake
+            return {"ok": True}, []
+        return None, [(event, json.loads(body))]
 
     async def fetch(
         self, *, org_id: str, config: dict[str, Any], secret: str | None, since: str | None

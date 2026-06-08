@@ -23,7 +23,7 @@ from meaninggrid_shared import (
 )
 
 from meaninggrid_ingest import oauth
-from meaninggrid_ingest.connectors import SUPPORTED_KINDS
+from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.schemas import (
     AnalyticsOut,
@@ -45,12 +45,7 @@ from meaninggrid_ingest.schemas import (
     SyncOut,
     UserOut,
 )
-from meaninggrid_ingest.security import (
-    create_token,
-    decode_token,
-    verify_github_signature,
-    verify_slack_signature,
-)
+from meaninggrid_ingest.security import create_token, decode_token
 from meaninggrid_ingest.service import SourceService
 from meaninggrid_ingest.settings import IngestSettings
 
@@ -126,6 +121,8 @@ def _project_out(p: Project) -> ProjectOut:
         github_connected=bool(p.github_token),
         slack_team_name=p.slack_team_name,
         slack_connected=bool(p.slack_token),
+        discord_guild_name=p.discord_guild_name,
+        discord_connected=bool(p.discord_guild_id),
     )
 
 
@@ -198,6 +195,7 @@ async def health(cfg: CfgDep) -> dict:
         "oauth": {
             "github": bool(cfg.github_oauth_client_id),
             "slack": bool(cfg.slack_oauth_client_id),
+            "discord": bool(cfg.discord_oauth_client_id),
             "google": bool(cfg.google_oauth_client_id),
         },
     }
@@ -357,7 +355,7 @@ async def project_mcp_requests(
 
 @app.delete("/projects/{project_id}/integrations/{provider}")
 async def disconnect_provider(project_id: str, provider: str, svc: SvcDep, user: UserDep) -> dict:
-    if provider not in ("github", "slack"):
+    if provider not in ("github", "slack", "discord"):
         raise HTTPException(400, "unknown provider")
     await _owned_project(svc, user, project_id)
     await svc.disconnect_provider(project_id, provider)
@@ -377,6 +375,8 @@ def _creds(provider: str, cfg: IngestSettings) -> tuple[str | None, str | None]:
         return cfg.github_oauth_client_id, cfg.github_oauth_client_secret
     if provider == "slack":
         return cfg.slack_oauth_client_id, cfg.slack_oauth_client_secret
+    if provider == "discord":
+        return cfg.discord_oauth_client_id, cfg.discord_oauth_client_secret
     return None, None
 
 
@@ -384,7 +384,7 @@ def _creds(provider: str, cfg: IngestSettings) -> tuple[str | None, str | None]:
 async def oauth_start(
     provider: str, svc: SvcDep, cfg: CfgDep, project_id: Annotated[str, Query()]
 ) -> RedirectResponse:
-    if provider not in ("github", "slack"):
+    if provider not in ("github", "slack", "discord"):
         raise HTTPException(404, "unknown provider")
     client_id, _ = _creds(provider, cfg)
     if not client_id:
@@ -395,12 +395,12 @@ async def oauth_start(
         raise HTTPException(404, "project not found")
     state = oauth.new_state(project_id, provider)
     redirect = oauth.redirect_uri(cfg.oauth_redirect_base, provider)
-    url = (
-        oauth.github_authorize_url(client_id, redirect, state)
-        if provider == "github"
-        else oauth.slack_authorize_url(client_id, redirect, state)
-    )
-    return RedirectResponse(url)
+    authorize_url = {
+        "github": oauth.github_authorize_url,
+        "slack": oauth.slack_authorize_url,
+        "discord": oauth.discord_authorize_url,
+    }[provider]
+    return RedirectResponse(authorize_url(client_id, redirect, state))
 
 
 @app.get("/oauth/{provider}/callback")
@@ -423,9 +423,12 @@ async def oauth_callback(
         if provider == "github":
             res = await oauth.github_exchange(client_id, client_secret, code, redirect)
             await svc.set_github_token(project_id, res["login"], res["token"])
-        else:
+        elif provider == "slack":
             res = await oauth.slack_exchange(client_id, client_secret, code, redirect)
             await svc.set_slack_token(project_id, res["team_id"], res["team_name"], res["token"])
+        else:  # discord — bot invite; record the guild (poller uses the app bot token)
+            res = await oauth.discord_exchange(client_id, client_secret, code, redirect)
+            await svc.set_discord_guild(project_id, res["guild_id"], res["guild_name"])
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(f"{cfg.web_origin}/projects/{project_id}?error={type(e).__name__}")
     return RedirectResponse(f"{cfg.web_origin}/projects/{project_id}?connected={provider}")
@@ -449,6 +452,18 @@ async def slack_channels(
     if not p.slack_token:
         raise HTTPException(400, "Slack not connected for this project")
     return await oauth.slack_list_channels(p.slack_token)
+
+
+@app.get("/oauth/discord/channels", response_model=list[ChannelOut])
+async def discord_channels(
+    svc: SvcDep, user: UserDep, cfg: CfgDep, project_id: Annotated[str, Query()]
+) -> list[dict]:
+    p = await _owned_project(svc, user, project_id)
+    if not p.discord_guild_id:
+        raise HTTPException(400, "Discord not connected for this project")
+    if not cfg.discord_bot_token:
+        raise HTTPException(503, "discord bot token not configured")
+    return await oauth.discord_list_channels(p.discord_guild_id, cfg.discord_bot_token)
 
 
 # -- sources ---------------------------------------------------------------
@@ -492,50 +507,42 @@ async def sync_source(source_id: str, svc: SvcDep, user: UserDep) -> SyncOut:
     return SyncOut(source_id=source_id, ingested=n)
 
 
+async def _handle_webhook(kind: str, secret: str, request: Request, ingest) -> dict:
+    """Shared event-webhook flow: verify the signature, parse via the kind's
+    EventConnector, return its handshake reply, else fan each parsed event out
+    through ``ingest(*args)`` (the provider's service method). Signed but
+    otherwise public — no bearer auth."""
+    conn = event_connector(kind)
+    assert conn is not None  # only kinds with a registered EventConnector reach here
+    raw = await request.body()
+    if not conn.verify(secret=secret, headers=request.headers, body=raw):
+        raise HTTPException(401, f"bad {kind} signature")
+    response, dispatches = conn.parse(headers=request.headers, body=raw)
+    if response is not None:  # endpoint handshake (slack url_verification / github ping)
+        return response
+    for args in dispatches:
+        await ingest(*args)
+    return {"ok": True}
+
+
 @app.post("/webhooks/slack")
 async def slack_webhook(request: Request, svc: SvcDep, cfg: CfgDep) -> dict:
-    """Slack Events API receiver (real-time). Verifies the request signature, then
-    pushes message events into the same pipeline the poller feeds. Signed but
-    otherwise public — no bearer auth."""
+    """Slack Events API receiver (real-time) — pushes messages into the same
+    pipeline the poller feeds."""
     if not cfg.slack_signing_secret:
         raise HTTPException(503, "slack webhook not configured")
-    raw = await request.body()
-    if not verify_slack_signature(
-        cfg.slack_signing_secret,
-        request.headers.get("X-Slack-Request-Timestamp", ""),
-        request.headers.get("X-Slack-Signature", ""),
-        raw.decode("utf-8", "replace"),
-    ):
-        raise HTTPException(401, "bad slack signature")
-
-    payload = json.loads(raw)
-    if payload.get("type") == "url_verification":  # one-time endpoint handshake
-        return {"challenge": payload.get("challenge")}
-    if payload.get("type") == "event_callback":
-        ev = payload.get("event") or {}
-        # only real, top-level user messages — skip edits/deletes/joins and bots
-        if ev.get("type") == "message" and not ev.get("subtype") and not ev.get("bot_id"):
-            await svc.ingest_slack_event(payload.get("team_id"), ev)
-    return {"ok": True}
+    return await _handle_webhook("slack", cfg.slack_signing_secret, request, svc.ingest_slack_event)
 
 
 @app.post("/webhooks/github")
 async def github_webhook(request: Request, svc: SvcDep, cfg: CfgDep) -> dict:
-    """GitHub repo webhook receiver (real-time). Verifies X-Hub-Signature-256,
-    then pushes push/issues/PR/comment events into the same pipeline the poller
-    feeds. Signed but otherwise public — no bearer auth."""
+    """GitHub repo webhook receiver (real-time) — pushes push/issues/PR/comment
+    events into the same pipeline the poller feeds."""
     if not cfg.github_webhook_secret:
         raise HTTPException(503, "github webhook not configured")
-    raw = await request.body()
-    if not verify_github_signature(
-        cfg.github_webhook_secret, request.headers.get("X-Hub-Signature-256", ""), raw
-    ):
-        raise HTTPException(401, "bad github signature")
-    event = request.headers.get("X-GitHub-Event", "")
-    if event == "ping":  # GitHub's create-webhook handshake
-        return {"ok": True}
-    await svc.ingest_github_event(event, json.loads(raw))
-    return {"ok": True}
+    return await _handle_webhook(
+        "github", cfg.github_webhook_secret, request, svc.ingest_github_event
+    )
 
 
 @app.get("/events", response_model=list[EventOut])

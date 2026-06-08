@@ -63,11 +63,13 @@ class ProjectOut(BaseModel):
     github_connected: bool
     slack_team_name: str | None
     slack_connected: bool
+    discord_guild_name: str | None
+    discord_connected: bool
 
 
 class SourceCreate(BaseModel):
     project_id: str
-    kind: str  # github | slack
+    kind: str  # github | slack | discord
     config: dict[str, Any]
     secret: str | None = None  # optional manual token; else the project's OAuth token
 

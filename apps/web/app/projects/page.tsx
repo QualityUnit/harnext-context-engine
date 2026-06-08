@@ -51,7 +51,7 @@ export default function ProjectsIndexPage() {
         </div>
         <h1 className="view-title">Create your first project</h1>
         <p className="view-desc" style={{ marginBottom: 18 }}>
-          A project is one context grid — connect GitHub or Slack and your agents query it over MCP.
+          A project is one context grid — connect GitHub, Slack or Discord and your agents query it over MCP.
         </p>
         <form onSubmit={create}>
           <label className="field-label">Project name</label>

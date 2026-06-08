@@ -25,6 +25,8 @@ export interface Project {
   github_connected: boolean;
   slack_team_name: string | null;
   slack_connected: boolean;
+  discord_guild_name: string | null;
+  discord_connected: boolean;
 }
 
 export interface Source {
@@ -98,7 +100,7 @@ export interface Build {
 export interface Health {
   ok: boolean;
   kinds: string[];
-  oauth: { github: boolean; slack: boolean; google: boolean };
+  oauth: { github: boolean; slack: boolean; discord: boolean; google: boolean };
 }
 
 export interface Repo {

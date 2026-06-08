@@ -1,8 +1,10 @@
-"""OAuth helpers for GitHub + Slack connect flows.
+"""OAuth helpers for GitHub + Slack + Discord connect flows.
 
 Authorize-URL building, code→token exchange, and repo/channel listing. CSRF
-state is kept in-memory (single-instance MVP). The obtained access token is
-stored on the Project; sources reuse it.
+state is kept in-memory (single-instance MVP). For GitHub/Slack the obtained
+access token is stored on the Project and sources reuse it; for Discord the
+"Connect" flow only records the invited guild (the poller uses one app-level
+bot token), so the exchange returns the guild rather than a per-project token.
 """
 
 from __future__ import annotations
@@ -249,3 +251,51 @@ async def slack_list_channels(token: str) -> list[dict]:
     if not data.get("ok"):
         raise OAuthError(data.get("error") or "slack list failed")
     return [{"id": ch["id"], "name": ch["name"]} for ch in data.get("channels", [])]
+
+
+def discord_authorize_url(client_id: str, redirect: str, state: str) -> str:
+    # scope "bot" invites our app's bot into the chosen guild; permissions 66560
+    # = View Channel (1024) | Read Message History (65536).
+    q = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect,
+            "response_type": "code",
+            "scope": "bot",
+            "permissions": "66560",
+            "state": state,
+        }
+    )
+    return f"https://discord.com/oauth2/authorize?{q}"
+
+
+async def discord_exchange(client_id: str, client_secret: str, code: str, redirect: str) -> dict:
+    """Complete the bot-invite. Returns the guild the bot was added to — the
+    poller uses the app-level bot token, so no per-project token is stored."""
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(
+            "https://discord.com/api/oauth2/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect,
+            },
+        )
+    r.raise_for_status()
+    guild = r.json().get("guild") or {}
+    if not guild.get("id"):
+        raise OAuthError("discord authorization returned no guild — was the bot added to a server?")
+    return {"guild_id": guild.get("id"), "guild_name": guild.get("name")}
+
+
+async def discord_list_channels(guild_id: str, bot_token: str) -> list[dict]:
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(
+            f"https://discord.com/api/v10/guilds/{guild_id}/channels",
+            headers={"Authorization": f"Bot {bot_token}"},
+        )
+    r.raise_for_status()
+    # type 0 == GUILD_TEXT
+    return [{"id": ch["id"], "name": ch["name"]} for ch in r.json() if ch.get("type") == 0]

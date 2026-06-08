@@ -98,6 +98,9 @@ class Project(Base):
     slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     slack_team_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     slack_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Discord uses an app-level bot token (env); only the connected guild is per-project.
+    discord_guild_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    discord_guild_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class Source(Base):

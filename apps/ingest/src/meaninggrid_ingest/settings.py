@@ -42,6 +42,11 @@ class IngestSettings(BaseSettings):
     github_oauth_client_secret: str | None = None
     slack_oauth_client_id: str | None = None
     slack_oauth_client_secret: str | None = None
+    # Discord — OAuth app for the bot-invite "Connect" flow + the app-level bot
+    # token the poller authenticates with (one bot, invited into each guild).
+    discord_oauth_client_id: str | None = None
+    discord_oauth_client_secret: str | None = None
+    discord_bot_token: str | None = None
     # "Sign in with Google" — Google Cloud OAuth client.
     google_oauth_client_id: str | None = None
     google_oauth_client_secret: str | None = None

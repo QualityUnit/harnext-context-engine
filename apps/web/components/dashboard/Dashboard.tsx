@@ -122,7 +122,7 @@ export function Dashboard({ id }: { id: string }) {
     projects.mutate();
   };
 
-  const onDisconnect = async (kind: "github" | "slack") => {
+  const onDisconnect = async (kind: "github" | "slack" | "discord") => {
     await api.disconnectProvider(id, kind);
     refresh();
   };
