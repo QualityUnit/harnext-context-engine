@@ -15,6 +15,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "bcrypt>=4.2",
     "pyjwt>=2.9",
+    "celery[redis]>=5.4",
     "yt-dlp>=2026.2.21,<2027",
 ]
 
