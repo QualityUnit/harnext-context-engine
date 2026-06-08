@@ -149,6 +149,23 @@ def test_oauth_state():
     assert oauth.consume_state(g) == ("", "google")
 
 
+def test_github_normalize_repo():
+    from meaninggrid_ingest.connectors.github import normalize_repo
+
+    cases = {
+        "QualityUnit/pyworkflow": "QualityUnit/pyworkflow",
+        "https://github.com/QualityUnit/pyworkflow": "QualityUnit/pyworkflow",
+        "https://github.com/QualityUnit/pyworkflow.git": "QualityUnit/pyworkflow",
+        "http://github.com/QualityUnit/pyworkflow/": "QualityUnit/pyworkflow",
+        "github.com/QualityUnit/pyworkflow": "QualityUnit/pyworkflow",
+        "git@github.com:QualityUnit/pyworkflow.git": "QualityUnit/pyworkflow",
+        "https://github.com/QualityUnit/pyworkflow/tree/main": "QualityUnit/pyworkflow",
+        "  QualityUnit/pyworkflow  ": "QualityUnit/pyworkflow",
+    }
+    for raw, want in cases.items():
+        assert normalize_repo(raw) == want, raw
+
+
 async def test_github_connector_builds_events(monkeypatch):
     async def fake_get(self, client, url, since, **params):
         if url.endswith("/issues"):

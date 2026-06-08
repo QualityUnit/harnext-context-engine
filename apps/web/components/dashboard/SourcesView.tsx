@@ -17,6 +17,18 @@ import { Icon } from "@/components/DashIcons";
 const errMsg = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e)).replace(/^sync failed:\s*/i, "");
 
+// Coerce a pasted GitHub URL / .git / owner-name-with-extra-path to "owner/name".
+function normalizeRepo(raw: string): string {
+  const s = raw
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/^(www\.)?github\.com\//i, "")
+    .replace(/\.git$/i, "");
+  const parts = s.split("/").filter(Boolean);
+  return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : s.replace(/^\/+|\/+$/g, "");
+}
+
 // ---- source card -----------------------------------------------------------
 function SourceCard({
   s,
@@ -144,6 +156,9 @@ function AddSourceModal({
   async function connect(kind: "github" | "slack", config: Record<string, unknown>, secret?: string | null) {
     setBusy(true);
     setErr(null);
+    if (kind === "github" && typeof config.repo === "string") {
+      config = { ...config, repo: normalizeRepo(config.repo) };
+    }
     let src: Source;
     try {
       src = await api.createSource(project.id, kind, config, secret ?? null);

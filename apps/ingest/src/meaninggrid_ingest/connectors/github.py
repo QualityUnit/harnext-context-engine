@@ -5,6 +5,7 @@ rate limit). Incremental via the GitHub ``since`` parameter.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -15,6 +16,22 @@ from meaninggrid_ingest.connectors.base import FetchResult
 
 _API = "https://api.github.com"
 _BODY_CLIP = 1200
+
+
+def normalize_repo(raw: str) -> str:
+    """Coerce any common GitHub reference to ``owner/name``.
+
+    Accepts ``owner/name``, ``https://github.com/owner/name(.git)``,
+    ``github.com/owner/name``, ``git@github.com:owner/name.git`` and URLs with
+    extra path segments (``.../tree/main``) — taking the first two segments.
+    """
+    s = raw.strip()
+    s = re.sub(r"^https?://", "", s, flags=re.I)
+    s = re.sub(r"^git@github\.com:", "", s, flags=re.I)
+    s = re.sub(r"^(www\.)?github\.com/", "", s, flags=re.I)
+    s = re.sub(r"\.git$", "", s, flags=re.I)
+    parts = [p for p in s.split("/") if p]
+    return f"{parts[0]}/{parts[1]}" if len(parts) >= 2 else s.strip("/")
 
 
 def _parse_ts(s: str | None) -> datetime:
@@ -37,7 +54,7 @@ class GitHubConnector:
     async def fetch(
         self, *, org_id: str, config: dict[str, Any], secret: str | None, since: str | None
     ) -> FetchResult:
-        repo = config["repo"]  # "owner/name"
+        repo = normalize_repo(config["repo"])  # accepts a URL or "owner/name"
         subject = f"repo:{repo}"
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if secret:
