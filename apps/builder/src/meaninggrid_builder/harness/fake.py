@@ -28,9 +28,20 @@ class FakeHarness:
         with index.open("a") as f:
             f.write("\n<!-- incorporated by fake harness -->\n")
 
+        # Prove the changed files are readable from `_event/`: fold their content
+        # into the durable marker. The `_event/` tree itself is reference-only and
+        # is removed before snapshotting, so this is the only trace that survives.
+        seen = ""
+        manifest = wd / "_event" / "MANIFEST.md"
+        if manifest.exists():
+            files = sorted(p for p in (wd / "_event").rglob("*") if p.is_file())
+            seen = "\n\n## _event files seen\n" + "".join(
+                f"\n### {p.relative_to(wd)}\n{p.read_text()[:4000]}\n" for p in files
+            )
+
         marker = wd / "_meta" / "last_build.md"
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(f"# Last build\n\n{req.instruction[:4000]}\n")
+        marker.write_text(f"# Last build\n\n{req.instruction[:4000]}\n{seen}")
 
         return ConversationTranscript(
             harness=self.name,

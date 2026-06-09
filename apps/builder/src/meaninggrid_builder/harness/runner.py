@@ -17,13 +17,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import shutil
 import sys
 from pathlib import Path
 
-from meaninggrid_builder.harness.base import HarnessRequest
+from meaninggrid_builder.event_fs import EVENT_DIR
+from meaninggrid_builder.harness.base import EventFile, HarnessRequest
 from meaninggrid_builder.harness.registry import get_harness
 
-_EXCLUDE_DIRS = {".git", ".agentfs"}
+# _event holds reference material (the event's changed files), not durable
+# context: excluded from the diff and removed before the snapshot is taken.
+_EXCLUDE_DIRS = {".git", ".agentfs", EVENT_DIR}
 
 
 def _walk_hashes(root: Path) -> dict[str, str]:
@@ -52,10 +56,33 @@ def _diff(pre: dict[str, str], post: dict[str, str]) -> list[str]:
     return changed
 
 
+def _materialize(root: Path, files: list[EventFile]) -> None:
+    """Write the event's changed files into ``_event/`` for the agent to read."""
+    for ef in files:
+        dst = root / ef.path
+        # _event is the only writable mount target; guard against escapes.
+        if EVENT_DIR not in Path(ef.path).parts or not _within(root, dst):
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(ef.content)
+
+
+def _within(root: Path, p: Path) -> bool:
+    try:
+        p.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 async def _run(req: HarnessRequest):
     root = Path(req.working_dir)
-    pre = _walk_hashes(root)
-    transcript = await get_harness(req.harness).run(req)
+    _materialize(root, req.event_files)
+    pre = _walk_hashes(root)  # excludes _event, so the mount never shows as a change
+    try:
+        transcript = await get_harness(req.harness).run(req)
+    finally:
+        shutil.rmtree(root / EVENT_DIR, ignore_errors=True)  # never snapshot reference files
     post = _walk_hashes(root)
     transcript.files_changed = _diff(pre, post)
     return transcript

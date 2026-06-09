@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from meaninggrid_shared import CloudEvent, utcnow
@@ -19,6 +20,17 @@ from meaninggrid_ingest.security import verify_github_signature
 
 _API = "https://api.github.com"
 _BODY_CLIP = 1200
+
+# Changed-file materialization. A GitHub event carries only metadata, and the
+# builder agent that consumes it is network-isolated — so we fetch the actual
+# changed files here (where the repo token lives) and attach them to the event as
+# ``data["files"]``. The builder later writes these into a read-only ``_event/``
+# dir the agent can read. Bounded so a single event can't blow past Kafka's
+# message-size limit: at most _MAX_FILES files, _MAX_FILE_BYTES each, _MAX_TOTAL_BYTES total.
+_MAX_FILES = 50
+_MAX_FILE_BYTES = 64_000
+_MAX_TOTAL_BYTES = 512_000
+_RAW_ACCEPT = "application/vnd.github.raw"
 
 
 def normalize_repo(raw: str) -> str:
@@ -121,6 +133,100 @@ def webhook_to_events(event: str, repo: str, payload: dict[str, Any]) -> list[di
     return out
 
 
+def _clip_bytes(text: str, limit: int) -> tuple[str, bool]:
+    """Clip ``text`` to at most ``limit`` UTF-8 bytes on a char boundary."""
+    if len(text.encode("utf-8")) <= limit:
+        return text, False
+    return text.encode("utf-8")[:limit].decode("utf-8", "ignore"), True
+
+
+async def _raw_content(
+    client: httpx.AsyncClient, url: str, ref: str | None
+) -> str | None:
+    """Fetch a file's raw text at ``ref``. Returns None for non-200 or binary."""
+    params = {"ref": ref} if ref else None
+    r = await client.get(url, params=params, headers={"Accept": _RAW_ACCEPT})
+    if r.status_code != 200:
+        return None
+    try:
+        return r.content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None  # binary — keep the path in the manifest, drop the content
+
+
+async def _collect(
+    client: httpx.AsyncClient,
+    specs: Sequence[tuple[str | None, str, str | None, str | None]],
+) -> list[dict[str, Any]]:
+    """specs: ``(path, status, content_url, ref)``. Fetch content for
+    added/modified files within the byte budgets; ``removed`` files (and ones
+    whose content overflows the total budget) keep their path but no content."""
+    out: list[dict[str, Any]] = []
+    total = 0
+    for path, status, content_url, ref in specs[:_MAX_FILES]:
+        if not path:
+            continue
+        rec: dict[str, Any] = {"path": path, "status": status}
+        if status != "removed" and content_url and total < _MAX_TOTAL_BYTES:
+            text = await _raw_content(client, content_url, ref)
+            if text is not None:
+                clipped, truncated = _clip_bytes(text, _MAX_FILE_BYTES)
+                size = len(clipped.encode("utf-8"))
+                if total + size <= _MAX_TOTAL_BYTES:
+                    rec["content"] = clipped
+                    rec["truncated"] = truncated
+                    total += size
+                else:
+                    rec["truncated"] = True  # total budget exhausted
+        out.append(rec)
+    return out
+
+
+async def _commit_files(client: httpx.AsyncClient, repo: str, sha: str) -> list[dict[str, Any]]:
+    r = await client.get(f"{_API}/repos/{repo}/commits/{sha}")
+    if r.status_code != 200:
+        return []
+    specs: list[tuple[str | None, str, str | None, str | None]] = []
+    for f in r.json().get("files") or []:
+        name = f.get("filename")
+        url = f"{_API}/repos/{repo}/contents/{quote(name, safe='/')}" if name else None
+        specs.append((name, f.get("status", "modified"), url, sha))
+    return await _collect(client, specs)
+
+
+async def _pr_files(client: httpx.AsyncClient, repo: str, number: int) -> list[dict[str, Any]]:
+    r = await client.get(
+        f"{_API}/repos/{repo}/pulls/{number}/files", params={"per_page": _MAX_FILES}
+    )
+    if r.status_code != 200:
+        return []
+    # ``contents_url`` already pins the PR head ref, so no explicit ref is needed.
+    specs = [
+        (f.get("filename"), f.get("status", "modified"), f.get("contents_url"), None)
+        for f in r.json()
+    ]
+    return await _collect(client, specs)
+
+
+async def enrich_files(
+    client: httpx.AsyncClient, repo: str, ev_type: str, data: dict[str, Any]
+) -> None:
+    """Best-effort: attach ``data['files']`` (changed files + content) for commit
+    and pull_request events. Never raises — enrichment failure must not drop the
+    event; the agent simply falls back to the commit/PR metadata it already has."""
+    try:
+        if ev_type == "com.github.commit" and data.get("sha"):
+            files = await _commit_files(client, repo, data["sha"])
+        elif ev_type == "com.github.pull_request" and data.get("number"):
+            files = await _pr_files(client, repo, int(data["number"]))
+        else:
+            return
+        if files:
+            data["files"] = files
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return
+
+
 class GitHubConnector(EventConnector, PollingConnector):
     kind = "github"
 
@@ -161,6 +267,18 @@ class GitHubConnector(EventConnector, PollingConnector):
             for it in issues:
                 is_pr = "pull_request" in it
                 ts = it.get("updated_at")
+                data = {
+                    "number": it["number"],
+                    "title": it.get("title"),
+                    "state": it.get("state"),
+                    "body": _clip(it.get("body")),
+                    "labels": [lbl["name"] for lbl in it.get("labels", [])],
+                    "author": (it.get("user") or {}).get("login"),
+                    "url": it.get("html_url"),
+                    "is_pull_request": is_pr,
+                }
+                if is_pr:
+                    await enrich_files(client, repo, "com.github.pull_request", data)
                 events.append(
                     CloudEvent(
                         id=f"github-issue-{repo}-{it['number']}-{ts}",
@@ -169,16 +287,7 @@ class GitHubConnector(EventConnector, PollingConnector):
                         subject=subject,
                         time=_parse_ts(ts),
                         mgtenant=org_id,
-                        data={
-                            "number": it["number"],
-                            "title": it.get("title"),
-                            "state": it.get("state"),
-                            "body": _clip(it.get("body")),
-                            "labels": [lbl["name"] for lbl in it.get("labels", [])],
-                            "author": (it.get("user") or {}).get("login"),
-                            "url": it.get("html_url"),
-                            "is_pull_request": is_pr,
-                        },
+                        data=data,
                     )
                 )
 
@@ -213,6 +322,13 @@ class GitHubConnector(EventConnector, PollingConnector):
             for cm in commits:
                 commit = cm.get("commit", {})
                 ts = (commit.get("author") or {}).get("date")
+                data = {
+                    "sha": cm["sha"],
+                    "message": _clip(commit.get("message")),
+                    "author": (commit.get("author") or {}).get("name"),
+                    "url": cm.get("html_url"),
+                }
+                await enrich_files(client, repo, "com.github.commit", data)
                 events.append(
                     CloudEvent(
                         id=f"github-commit-{repo}-{cm['sha']}",
@@ -221,12 +337,7 @@ class GitHubConnector(EventConnector, PollingConnector):
                         subject=subject,
                         time=_parse_ts(ts),
                         mgtenant=org_id,
-                        data={
-                            "sha": cm["sha"],
-                            "message": _clip(commit.get("message")),
-                            "author": (commit.get("author") or {}).get("name"),
-                            "url": cm.get("html_url"),
-                        },
+                        data=data,
                     )
                 )
 

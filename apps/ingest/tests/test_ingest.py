@@ -354,7 +354,12 @@ def test_github_signature_verify():
     assert not verify_github_signature("", sig, body)
 
 
-async def test_github_event_routing(tmp_path):
+async def test_github_event_routing(tmp_path, monkeypatch):
+    # stub changed-file enrichment so the routing test stays offline + deterministic
+    async def _noop(client, repo, ev_type, data):
+        return None
+
+    monkeypatch.setattr("meaninggrid_ingest.connectors.github.enrich_files", _noop)
     svc, engine, producer = await _svc(tmp_path)
     try:
         u = await svc.register("a@b.com", "hunter2", "A")
@@ -392,10 +397,15 @@ async def test_github_event_routing(tmp_path):
         await engine.dispose()
 
 
-async def test_github_webhook_endpoint(tmp_path):
+async def test_github_webhook_endpoint(tmp_path, monkeypatch):
     import hashlib
     import hmac
     import json as _json
+
+    async def _noop(client, repo, ev_type, data):
+        return None
+
+    monkeypatch.setattr("meaninggrid_ingest.connectors.github.enrich_files", _noop)
 
     import httpx
     from meaninggrid_ingest.main import app

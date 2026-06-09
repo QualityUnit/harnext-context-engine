@@ -29,6 +29,14 @@ ALLOWED_TOOLS = [
 DENIED_TOOLS = ["WebFetch", "WebSearch", "Task"]
 
 
+class EventFile(BaseModel):
+    """One changed source file to materialize in the agent's working dir before a
+    build. ``path`` is relative to the working dir (always under ``_event/``)."""
+
+    path: str
+    content: str
+
+
 class HarnessRequest(BaseModel):
     harness: str
     working_dir: str
@@ -36,6 +44,9 @@ class HarnessRequest(BaseModel):
     system_prompt: str
     allowed_tools: list[str] = Field(default_factory=lambda: list(ALLOWED_TOOLS))
     disallowed_tools: list[str] = Field(default_factory=lambda: list(DENIED_TOOLS))
+    # Changed files for the triggering event(s), written into ``_event/`` for the
+    # agent to read and removed after the build (never snapshotted). See event_fs.
+    event_files: list[EventFile] = Field(default_factory=list)
     model: str | None = None
     max_turns: int = 40
     timeout_s: int = 300

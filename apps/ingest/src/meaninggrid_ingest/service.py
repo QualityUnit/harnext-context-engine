@@ -10,6 +10,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
+import httpx
 from meaninggrid_shared import (
     RAW_EVENTS_TOPIC,
     BuildLedger,
@@ -630,7 +631,7 @@ class SourceService:
 
         Event ids match the poller's, so a change seen via both webhook and a
         later sync is deduped."""
-        from meaninggrid_ingest.connectors.github import webhook_to_events
+        from meaninggrid_ingest.connectors.github import enrich_files, webhook_to_events
 
         repo = (payload.get("repository") or {}).get("full_name")
         if not repo:
@@ -646,6 +647,10 @@ class SourceService:
         matches = [src for src in srcs if json.loads(src.config_json).get("repo") == repo]
         if not matches:
             return 0
+
+        # Attach changed files once (content is identical across the matching
+        # sources). Best-effort: a missing/invalid token degrades to metadata-only.
+        await self._enrich_github_files(repo, matches, items, enrich_files)
 
         count = 0
         for src in matches:
@@ -668,6 +673,25 @@ class SourceService:
                 count += 1
             await self._mark_synced(src.id, latest)
         return count
+
+    async def _enrich_github_files(self, repo, matches, items, enrich_files) -> None:
+        """Mutate each item's ``data`` in place with its changed files. The token
+        comes from any matching source's secret, else the project's GitHub token;
+        public repos work unauthenticated (lower rate limit). Never raises."""
+        token = next((src.secret for src in matches if src.secret), None)
+        if token is None:
+            async with self.sm() as s:
+                proj = await s.get(Project, matches[0].org_id)
+                token = proj.github_token if proj else None
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+                for it in items:
+                    await enrich_files(client, repo, it["type"], it["data"])
+        except (httpx.HTTPError, OSError):  # best-effort enrichment
+            pass
 
     async def list_events(self, project_id: str, limit: int = 50) -> list[IngestedEvent]:
         async with self.sm() as s:

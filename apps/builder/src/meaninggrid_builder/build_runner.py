@@ -17,6 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from meaninggrid_builder.agentfs.store import OrgFsStore
+from meaninggrid_builder.event_fs import event_files
 from meaninggrid_builder.harness.base import ConversationTranscript, HarnessRequest
 from meaninggrid_builder.persistence import Persistence
 from meaninggrid_builder.prompts import SYSTEM_PROMPT, render_instruction
@@ -83,6 +84,7 @@ class BuildRunner:
             working_dir=".",  # the runner overrides this with the mount's cwd
             instruction=instruction,
             system_prompt=SYSTEM_PROMPT,
+            event_files=event_files(wi.events),  # changed files → _event/ for the agent
             model=self.s.builder_model,
             max_turns=self.s.builder_max_turns,
             timeout_s=self.s.builder_timeout_s,

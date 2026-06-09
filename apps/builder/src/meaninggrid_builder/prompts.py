@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import json
 
+from meaninggrid_shared import CloudEvent
+
+from meaninggrid_builder.event_fs import rel_for
 from meaninggrid_builder.work_item import WorkItem
 
 SYSTEM_PROMPT = """\
@@ -27,10 +30,16 @@ the user message into the filesystem:
   `_meta/superseded.md` with a pointer + reason; write the new fact in `facts.md`.
 - Keep the top-level `INDEX.md` accurate.
 
-Edit only files under the working directory. Do not run shell commands or access
-the network. Cite the event id/source in provenance. Do not invent facts beyond
-the payload. Make the minimal set of edits that fully and faithfully incorporates
-the event(s), then stop.
+For a GitHub commit/PR event, the changed source files are mounted read-only
+under `_event/` (see `_event/MANIFEST.md`). Read them to understand what actually
+changed — the event JSON lists the files but omits their content. `_event/` is
+reference material only: never edit it, never copy file bodies into the context
+verbatim, and don't file it as an entity. It is removed after this build.
+
+Edit only files under the working directory (excluding `_event/`). Do not run
+shell commands or access the network. Cite the event id/source in provenance. Do
+not invent facts beyond the payload. Make the minimal set of edits that fully and
+faithfully incorporates the event(s), then stop.
 """
 
 _FAST_TMPL = """\
@@ -54,11 +63,25 @@ across the window and synthesize rather than transcribe.
 """
 
 
+def _redact(ev: CloudEvent) -> dict:
+    """Event as JSON for the prompt, but with each changed file's content replaced
+    by a pointer to where it's mounted — the agent reads the body from `_event/`,
+    keeping the prompt small."""
+    d = ev.model_dump(mode="json")
+    files = (d.get("data") or {}).get("files")
+    if isinstance(files, list):
+        for f in files:
+            if f.get("content") is not None:
+                f["content"] = f"<see {rel_for(ev.id, f.get('path', ''))}>"
+    return d
+
+
 def render_instruction(wi: WorkItem) -> str:
     if wi.lane == "fast":
         ev = wi.events[0]
-        return _FAST_TMPL.format(subject=ev.subject, event_json=ev.model_dump_json(indent=2))
-    events_json = json.dumps([e.model_dump(mode="json") for e in wi.events], indent=2, default=str)
+        event_json = json.dumps(_redact(ev), indent=2, default=str)
+        return _FAST_TMPL.format(subject=ev.subject, event_json=event_json)
+    events_json = json.dumps([_redact(e) for e in wi.events], indent=2, default=str)
     return _BATCH_TMPL.format(
         n=len(wi.events), subjects=", ".join(wi.subjects), events_json=events_json
     )
