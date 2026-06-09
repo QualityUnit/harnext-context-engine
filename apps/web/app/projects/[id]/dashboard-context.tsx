@@ -3,7 +3,7 @@
 import { createContext, useContext } from "react";
 import type { Analytics, Project, Source } from "@/lib/api";
 
-export type ProviderKind = "github" | "slack" | "discord" | "liveagent" | "youtube";
+export type ProviderKind = "github" | "slack" | "discord" | "liveagent" | "stripe" | "youtube";
 
 // Shared dashboard state + mutations, fetched once in the project layout and
 // consumed by each view's route page so navigating between views never refetches

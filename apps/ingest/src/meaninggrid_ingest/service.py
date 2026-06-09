@@ -221,6 +221,9 @@ class SourceService:
             elif kind == "liveagent":
                 proj.liveagent_base_url = None
                 proj.liveagent_api_key = None
+            elif kind == "stripe":
+                proj.stripe_account_name = None
+                proj.stripe_api_key = None
             srcs = list(
                 (
                     await s.execute(
@@ -333,6 +336,19 @@ class SourceService:
                 proj.liveagent_api_key = api_key
                 await s.commit()
 
+    async def set_stripe_integration(
+        self, project_id: str, account_name: str, api_key: str
+    ) -> None:
+        """Store a project's Stripe Restricted key (no OAuth) + the resolved account
+        display name. Sources snapshot these at create time (name → config, key →
+        secret)."""
+        async with self.sm() as s:
+            proj = await s.get(Project, project_id)
+            if proj:
+                proj.stripe_account_name = account_name
+                proj.stripe_api_key = api_key
+                await s.commit()
+
     # -- sources -----------------------------------------------------------
     async def create_source(
         self, project_id: str, kind: str, config: dict, secret: str | None = None
@@ -344,6 +360,8 @@ class SourceService:
             config = {**config, "guild_id": proj.discord_guild_id}  # server-authoritative guild
         if kind == "liveagent" and proj.liveagent_base_url and not config.get("base_url"):
             config = {**config, "base_url": proj.liveagent_base_url}  # the integration's install
+        if kind == "stripe" and proj.stripe_account_name and not config.get("account_name"):
+            config = {**config, "account_name": proj.stripe_account_name}  # connected account
         if secret is None:  # reuse the project/app credential for this kind
             secret = (
                 proj.github_token
@@ -354,6 +372,8 @@ class SourceService:
                 if kind == "discord"
                 else proj.liveagent_api_key
                 if kind == "liveagent"
+                else proj.stripe_api_key
+                if kind == "stripe"
                 else None
             )
         src = Source(

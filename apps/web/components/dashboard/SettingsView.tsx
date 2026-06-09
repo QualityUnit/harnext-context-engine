@@ -78,6 +78,7 @@ const PROVIDERS = {
   slack: { name: "Slack", noun: "channels", scope: "channels:history" },
   discord: { name: "Discord", noun: "channels", scope: "Read Message History" },
   liveagent: { name: "LiveAgent", noun: "departments", scope: "API v3 · read" },
+  stripe: { name: "Stripe", noun: "event streams", scope: "API key · read" },
   youtube: { name: "YouTube", noun: "channels", scope: "public captions" },
 } as const;
 
@@ -106,7 +107,9 @@ function IntegrationCard({
           ? Icon.discord
           : kind === "liveagent"
             ? Icon.liveagent
-            : Icon.youtube;
+            : kind === "stripe"
+              ? Icon.stripe
+              : Icon.youtube;
   return (
     <div className="int-card">
       <div className="int-head">
@@ -179,11 +182,13 @@ function IntegrationSettings({
   const sl = sources.filter((s) => s.kind === "slack");
   const dc = sources.filter((s) => s.kind === "discord");
   const la = sources.filter((s) => s.kind === "liveagent");
+  const st = sources.filter((s) => s.kind === "stripe");
   const yt = sources.filter((s) => s.kind === "youtube");
   const showGh = project.github_connected || gh.length > 0;
   const showSl = project.slack_connected || sl.length > 0;
   const showDc = project.discord_connected || dc.length > 0;
   const showLa = project.liveagent_connected || la.length > 0;
+  const showSt = project.stripe_connected || st.length > 0;
   // YouTube has no OAuth "connected" state — surface it once it has sources.
   const showYt = yt.length > 0;
 
@@ -230,6 +235,15 @@ function IntegrationSettings({
           onDisconnect={onDisconnect}
         />
       )}
+      {showSt && (
+        <IntegrationCard
+          kind="stripe"
+          account={project.stripe_account_name ?? ""}
+          sources={st}
+          onRemove={onRemove}
+          onDisconnect={onDisconnect}
+        />
+      )}
       {showYt && (
         <IntegrationCard
           kind="youtube"
@@ -239,10 +253,10 @@ function IntegrationSettings({
           onDisconnect={onDisconnect}
         />
       )}
-      {!showGh && !showSl && !showDc && !showLa && !showYt && (
+      {!showGh && !showSl && !showDc && !showLa && !showSt && !showYt && (
         <div className="int-empty big">
           No integrations connected. Add a source from the Sources view to connect GitHub, Slack,
-          Discord, LiveAgent or YouTube.
+          Discord, LiveAgent, Stripe or YouTube.
         </div>
       )}
 

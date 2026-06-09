@@ -28,6 +28,7 @@ export function sourceName(s: Source): string {
     const tag = cfg(s, "tag_name");
     return tag ? `${dept} · #${tag}` : dept;
   }
+  if (s.kind === "stripe") return cfg(s, "account_name") || "Stripe account";
   if (s.kind === "youtube")
     return cfg(s, "channel_name") || cfg(s, "channel_id") || cfg(s, "channel_url") || "channel";
   if (s.kind === "sitemap") {

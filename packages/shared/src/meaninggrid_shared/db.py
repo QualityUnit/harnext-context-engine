@@ -105,6 +105,10 @@ class Project(Base):
     # The key is the secret; the base URL is not, so it can be shown back in the UI.
     liveagent_base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     liveagent_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Stripe uses a read-only Restricted API key (no OAuth). The key is the secret;
+    # the resolved account display name is not, so it's shown back in the UI.
+    stripe_account_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stripe_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Source(Base):
