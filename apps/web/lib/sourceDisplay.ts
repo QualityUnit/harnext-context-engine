@@ -38,6 +38,15 @@ export function sourceName(s: Source): string {
       return url || "website";
     }
   }
+  if (s.kind === "url") {
+    const url = cfg(s, "url");
+    try {
+      const u = new URL(url);
+      return u.pathname === "/" ? u.hostname : `${u.hostname}${u.pathname}`;
+    } catch {
+      return url || "page";
+    }
+  }
   return cfg(s, "channel_name") ? `#${cfg(s, "channel_name")}` : cfg(s, "channel_id") || "channel";
 }
 
