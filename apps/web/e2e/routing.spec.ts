@@ -27,6 +27,7 @@ const navLink = (page: Page, name: string) =>
 const VIEWS = [
   { nav: "Dashboard", path: "/projects/p1", heading: "MCP server requests" },
   { nav: "Sources", path: "/projects/p1/sources", heading: "Context sources" },
+  { nav: "Files", path: "/projects/p1/files", heading: "Context filesystem" },
   { nav: "Connect", path: "/projects/p1/connect", heading: "Connect a harness" },
   { nav: "Settings", path: "/projects/p1/settings", heading: "Settings" },
 ];

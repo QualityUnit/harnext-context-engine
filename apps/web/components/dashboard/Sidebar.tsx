@@ -115,6 +115,7 @@ export function Sidebar({
   const nav = [
     { href: base, label: "Dashboard", icon: Icon.activity },
     { href: `${base}/sources`, label: "Sources", icon: Icon.sources },
+    { href: `${base}/files`, label: "Files", icon: Icon.files },
     { href: `${base}/connect`, label: "Connect", icon: Icon.connect },
   ];
   // The index route ("Dashboard") matches exactly; sub-views match by prefix so

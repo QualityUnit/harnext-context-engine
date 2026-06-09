@@ -5,6 +5,7 @@ description = "Source registration API + connectors (GitHub, Slack, Discord, Liv
 requires-python = ">=3.12"
 dependencies = [
     "meaninggrid-shared",
+    "meaninggrid-builder",
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "aiokafka>=0.11",

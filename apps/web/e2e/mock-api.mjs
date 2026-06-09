@@ -75,6 +75,21 @@ const health = {
   oauth: { github: true, slack: true, discord: true, google: true },
 };
 
+// The agent's context filesystem (seed layout) for the Files view.
+const fsList = {
+  files: [
+    "CLAUDE.md",
+    "INDEX.md",
+    "_meta/schema.md",
+    "_meta/superseded.md",
+    "entities/.gitkeep",
+    "topics/.gitkeep",
+  ],
+  snapshot_id: "snap-test",
+};
+
+const fsFile = { path: "INDEX.md", content: "# Org Context Index\n", size: 20 };
+
 // Resolve a GET path (querystring stripped) to a JSON body. Returns undefined
 // for unknown routes so the caller can 404.
 function route(pathname) {
@@ -91,6 +106,8 @@ function route(pathname) {
     if (rest === "/mcp") return { endpoint: `http://localhost:8765/mcp/${id}`, token: "mcp-test-token" };
     if (rest === "/mcp-requests") return mcpRequests;
     if (rest === "/mcp-requests/stats") return mcpStats;
+    if (rest === "/fs") return fsList;
+    if (rest === "/fs/file") return fsFile;
   }
 
   if (pathname === "/sources") return sources;

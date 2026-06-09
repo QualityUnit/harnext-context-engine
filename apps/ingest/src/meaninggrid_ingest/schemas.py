@@ -146,6 +146,30 @@ class McpStatsOut(BaseModel):
     days: int
 
 
+class FsListOut(BaseModel):
+    """A flat listing of the org context filesystem (the agent's working files)."""
+
+    files: list[str]
+    snapshot_id: str | None  # the latest committed snapshot this listing reflects
+
+
+class FsFileOut(BaseModel):
+    path: str
+    content: str
+    size: int  # bytes of the (UTF-8) content
+
+
+class FsWriteIn(BaseModel):
+    path: str
+    content: str
+
+
+class FsWriteOut(BaseModel):
+    path: str
+    size: int
+    snapshot_id: str  # the edit snapshot created by this write
+
+
 class RepoOut(BaseModel):
     full_name: str
 

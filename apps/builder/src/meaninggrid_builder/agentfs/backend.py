@@ -76,6 +76,12 @@ class FsBackend(Protocol):
         """Read one file from the live FS (ref=None) or a snapshot ref."""
         ...
 
+    def write_file(self, org_id: str, relpath: str, content: str) -> None:
+        """Write ``content`` to ``relpath`` in the live FS, creating parent
+        directories and overwriting any existing file. Snapshotting the result
+        is the store's responsibility (see OrgFsStore.write_file)."""
+        ...
+
     def list_files(self, org_id: str, ref: str | None = None) -> list[str]:
         """List all file paths in the live FS (ref=None) or a snapshot ref."""
         ...

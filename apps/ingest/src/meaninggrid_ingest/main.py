@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from pathlib import PurePosixPath
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from meaninggrid_builder.agentfs.backend import get_backend
+from meaninggrid_builder.agentfs.store import OrgFsStore
+from meaninggrid_builder.settings import BuilderSettings
 from meaninggrid_shared import (
     BuildLedger,
     IngestedEvent,
@@ -32,6 +36,10 @@ from meaninggrid_ingest.schemas import (
     ChannelOut,
     DepartmentOut,
     EventOut,
+    FsFileOut,
+    FsListOut,
+    FsWriteIn,
+    FsWriteOut,
     LiveAgentConnectIn,
     LoginIn,
     McpInfoOut,
@@ -59,10 +67,15 @@ async def lifespan(app: FastAPI):
     settings = IngestSettings()
     engine = make_engine(settings.database_url)
     await init_db(engine)
+    sm = make_sessionmaker(engine)
     producer = Producer(settings.kafka_bootstrap_servers)
     await producer.start()
     app.state.settings = settings
-    app.state.service = SourceService(make_sessionmaker(engine), producer, settings)
+    app.state.service = SourceService(sm, producer, settings)
+    # The org context filesystem the builder maintains — same store (backend +
+    # snapshot metadata), so the dashboard browses/edits exactly what the agent
+    # sees. AgentFS config is read from BuilderSettings (the shared .env).
+    app.state.fs_store = OrgFsStore(get_backend(BuilderSettings()), sm)
     try:
         yield
     finally:
@@ -88,8 +101,13 @@ def settings() -> IngestSettings:
     return app.state.settings
 
 
+def fs_store() -> OrgFsStore:
+    return app.state.fs_store
+
+
 SvcDep = Annotated[SourceService, Depends(service)]
 CfgDep = Annotated[IngestSettings, Depends(settings)]
+FsDep = Annotated[OrgFsStore, Depends(fs_store)]
 
 
 async def current_user(
@@ -189,6 +207,16 @@ async def _owned_source(svc: SourceService, user: User, source_id: str) -> Sourc
         raise HTTPException(404, "source not found")
     await _owned_project(svc, user, src.org_id)
     return src
+
+
+def _safe_relpath(path: str) -> str:
+    """Normalize a client-supplied FS path and reject anything that could escape
+    the org's filesystem (absolute paths, ``..`` traversal)."""
+    rel = path.strip().lstrip("/")
+    pp = PurePosixPath(rel)
+    if not rel or pp.is_absolute() or any(part == ".." for part in pp.parts):
+        raise HTTPException(400, "invalid path")
+    return str(pp)
 
 
 def _token(cfg: IngestSettings, user: User) -> str:
@@ -359,6 +387,42 @@ async def project_mcp_requests(
     """Recent MCP tool calls (request + response) for this project, newest first."""
     await _owned_project(svc, user, project_id)
     return [_mcp_request_out(r) for r in await svc.list_mcp_requests(project_id, limit)]
+
+
+# -- context filesystem (the agent's working files) ------------------------
+# Browse + edit the org's AgentFS context store — exactly what the builder
+# agent reads/writes. Reads serve the LIVE working FS (what the next build will
+# see); a write commits an ``edit`` snapshot so it's durable and becomes the
+# consistent view the MCP read path mounts.
+@app.get("/projects/{project_id}/fs", response_model=FsListOut)
+async def list_fs(project_id: str, svc: SvcDep, user: UserDep, store: FsDep) -> FsListOut:
+    await _owned_project(svc, user, project_id)
+    await store.ensure(project_id)  # materialize the seed layout on first open
+    files = await store.list_files(project_id)
+    latest = await store.latest_snapshot(project_id)
+    return FsListOut(files=sorted(files), snapshot_id=latest.id if latest else None)
+
+
+@app.get("/projects/{project_id}/fs/file", response_model=FsFileOut)
+async def read_fs_file(
+    project_id: str, svc: SvcDep, user: UserDep, store: FsDep, path: Annotated[str, Query()]
+) -> FsFileOut:
+    await _owned_project(svc, user, project_id)
+    rel = _safe_relpath(path)
+    content = await store.read_file(project_id, rel)
+    if content is None:
+        raise HTTPException(404, "file not found")
+    return FsFileOut(path=rel, content=content, size=len(content.encode("utf-8")))
+
+
+@app.put("/projects/{project_id}/fs/file", response_model=FsWriteOut)
+async def write_fs_file(
+    project_id: str, body: FsWriteIn, svc: SvcDep, user: UserDep, store: FsDep
+) -> FsWriteOut:
+    await _owned_project(svc, user, project_id)
+    rel = _safe_relpath(body.path)
+    snapshot_id = await store.write_file(project_id, rel, body.content)
+    return FsWriteOut(path=rel, size=len(body.content.encode("utf-8")), snapshot_id=snapshot_id)
 
 
 @app.delete("/projects/{project_id}/integrations/{provider}")
