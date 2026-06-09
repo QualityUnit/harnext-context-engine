@@ -23,7 +23,7 @@ from meaninggrid_shared import (
 )
 
 from meaninggrid_ingest import oauth
-from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent
+from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent, stripe
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.schemas import (
     AnalyticsOut,
@@ -44,6 +44,7 @@ from meaninggrid_ingest.schemas import (
     RepoOut,
     SourceCreate,
     SourceOut,
+    StripeConnectIn,
     SyncOut,
     TagOut,
     UserOut,
@@ -128,6 +129,8 @@ def _project_out(p: Project) -> ProjectOut:
         discord_connected=bool(p.discord_guild_id),
         liveagent_base_url=p.liveagent_base_url,
         liveagent_connected=bool(p.liveagent_api_key),
+        stripe_account_name=p.stripe_account_name,
+        stripe_connected=bool(p.stripe_api_key),
     )
 
 
@@ -360,7 +363,7 @@ async def project_mcp_requests(
 
 @app.delete("/projects/{project_id}/integrations/{provider}")
 async def disconnect_provider(project_id: str, provider: str, svc: SvcDep, user: UserDep) -> dict:
-    if provider not in ("github", "slack", "discord", "liveagent", "youtube"):
+    if provider not in ("github", "slack", "discord", "liveagent", "stripe", "youtube"):
         raise HTTPException(400, "unknown provider")
     await _owned_project(svc, user, project_id)
     await svc.disconnect_provider(project_id, provider)
@@ -487,6 +490,27 @@ async def connect_liveagent(
     except Exception as e:  # noqa: BLE001 — surfaced to the user as a 400
         raise HTTPException(400, f"could not reach LiveAgent: {e}") from e
     await svc.set_liveagent_integration(project_id, base, body.api_key)
+    proj = await svc.get_project(project_id)
+    assert proj is not None
+    return _project_out(proj)
+
+
+# -- Stripe integration (no OAuth — a read-only Restricted API key) -----------
+@app.put("/projects/{project_id}/integrations/stripe", response_model=ProjectOut)
+async def connect_stripe(
+    project_id: str, body: StripeConnectIn, svc: SvcDep, user: UserDep
+) -> ProjectOut:
+    """Validate a Stripe Restricted key (by reading the events list) and store it
+    on the project along with the resolved account display name. Returns the
+    updated project."""
+    await _owned_project(svc, user, project_id)
+    if not body.api_key.strip():
+        raise HTTPException(400, "an API key is required")
+    try:
+        info = await stripe.verify_credentials(body.api_key.strip())
+    except Exception as e:  # noqa: BLE001 — surfaced to the user as a 400
+        raise HTTPException(400, f"could not reach Stripe: {e}") from e
+    await svc.set_stripe_integration(project_id, info["name"], body.api_key.strip())
     proj = await svc.get_project(project_id)
     assert proj is not None
     return _project_out(proj)

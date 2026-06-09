@@ -67,17 +67,23 @@ class ProjectOut(BaseModel):
     discord_connected: bool
     liveagent_base_url: str | None
     liveagent_connected: bool
+    stripe_account_name: str | None
+    stripe_connected: bool
 
 
 class SourceCreate(BaseModel):
     project_id: str
-    kind: str  # github | slack | discord | liveagent | youtube
+    kind: str  # github | slack | discord | liveagent | stripe | youtube
     config: dict[str, Any]
     secret: str | None = None  # optional manual token; else the project's OAuth token
 
 
 class LiveAgentConnectIn(BaseModel):
     base_url: str
+    api_key: str
+
+
+class StripeConnectIn(BaseModel):
     api_key: str
 
 
