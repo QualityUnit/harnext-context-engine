@@ -1,26 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import {
-  api,
-  fetcher,
-  type Analytics,
-  type FsList,
-  type McpRequest,
-  type McpStats,
-  type Project,
-  type Source,
-} from "@/lib/api";
+import { api, fetcher, type Analytics, type Project, type Source } from "@/lib/api";
 import { clearSession, useUser } from "@/lib/auth";
 import { toWs } from "@/lib/workspace";
-import { Sidebar, type View } from "@/components/dashboard/Sidebar";
-import { SourcesView } from "@/components/dashboard/SourcesView";
-import { ConnectView } from "@/components/dashboard/ConnectView";
-import { MCPView } from "@/components/dashboard/MCPView";
-import { FilesView } from "@/components/dashboard/FilesView";
-import { SettingsView } from "@/components/dashboard/SettingsView";
+import { Sidebar } from "@/components/dashboard/Sidebar";
+import { DashboardProvider, type ProviderKind } from "./dashboard-context";
 
 const OAUTH_ERRORS: Record<string, string> = {
   oauth_not_configured: "That provider isn't configured on this instance yet.",
@@ -28,19 +15,16 @@ const OAUTH_ERRORS: Record<string, string> = {
   OAuthError: "Authorization failed. Please try again.",
 };
 
-export function Dashboard({ id }: { id: string }) {
+// The project dashboard shell: sidebar + the shared data every view reads. Each
+// view lives at its own route (see the sibling page.tsx files) and renders into
+// {children}; this layout persists across those navigations so the sidebar and
+// the project/sources/analytics polling are never torn down between views.
+export default function ProjectLayout({ children }: { children: React.ReactNode }) {
+  const { id } = useParams<{ id: string }>();
   const user = useUser();
   const router = useRouter();
   const search = useSearchParams();
-  const [view, setView] = useState<View>("mcp");
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
-  // Remember the project whose Files view has been opened, so its file list
-  // stays subscribed across view switches (a conditional `null` key would drop
-  // the data, leaving the explorer empty until a manual refresh on return).
-  const [filesSeenFor, setFilesSeenFor] = useState<string | null>(null);
-  useEffect(() => {
-    if (view === "files") setFilesSeenFor(id);
-  }, [view, id]);
 
   const projects = useSWR<Project[]>(user ? "/projects" : null, fetcher);
   const project = useSWR<Project>(user ? `/projects/${id}` : null, fetcher, { refreshInterval: 8000 });
@@ -50,25 +34,6 @@ export function Dashboard({ id }: { id: string }) {
   const analytics = useSWR<Analytics>(user ? `/projects/${id}/analytics` : null, fetcher, {
     refreshInterval: 8000,
   });
-  // MCP activity is only polled while its view is open.
-  const mcpStats = useSWR<McpStats>(
-    user && view === "mcp" ? `/projects/${id}/mcp-requests/stats` : null,
-    fetcher,
-    { refreshInterval: 5000 },
-  );
-  const mcpRequests = useSWR<McpRequest[]>(
-    user && view === "mcp" ? `/projects/${id}/mcp-requests?limit=100` : null,
-    fetcher,
-    { refreshInterval: 5000 },
-  );
-  // The agent's context filesystem. Subscribed once Files is opened for this
-  // project and kept warm afterwards (keepPreviousData avoids an empty flash
-  // when switching back); a one-shot list, not polled.
-  const fs = useSWR<FsList>(
-    user && (view === "files" || filesSeenFor === id) ? `/projects/${id}/fs` : null,
-    fetcher,
-    { keepPreviousData: true },
-  );
 
   // Surface the OAuth callback result (?connected / ?error), then clean the URL.
   useEffect(() => {
@@ -100,10 +65,7 @@ export function Dashboard({ id }: { id: string }) {
 
   // ---- handlers ----
   const onSwitch = (pid: string) => {
-    if (pid !== id) {
-      setView("mcp");
-      router.push(`/projects/${pid}`);
-    }
+    if (pid !== id) router.push(`/projects/${pid}`);
   };
 
   const onCreate = async () => {
@@ -139,7 +101,7 @@ export function Dashboard({ id }: { id: string }) {
     projects.mutate();
   };
 
-  const onDisconnect = async (kind: "github" | "slack" | "discord" | "liveagent" | "youtube") => {
+  const onDisconnect = async (kind: ProviderKind) => {
     await api.disconnectProvider(id, kind);
     refresh();
   };
@@ -169,18 +131,15 @@ export function Dashboard({ id }: { id: string }) {
 
   const srcList = sources.data ?? [];
   const current = toWs(project.data, srcList.length);
-  const workspaces = (projects.data ?? [project.data]).map((p) =>
-    p.id === id ? current : toWs(p),
-  );
+  const workspaces = (projects.data ?? [project.data]).map((p) => (p.id === id ? current : toWs(p)));
 
   return (
     <div className="app">
       <Sidebar
+        id={id}
         workspaces={workspaces}
         current={current}
-        view={view}
         user={user}
-        onView={setView}
         onSwitch={onSwitch}
         onCreate={onCreate}
         onLogout={onLogout}
@@ -195,41 +154,22 @@ export function Dashboard({ id }: { id: string }) {
               </button>
             </div>
           )}
-          {view === "sources" ? (
-            <SourcesView
-              project={project.data}
-              sources={srcList}
-              analytics={analytics.data}
-              onSync={onSync}
-              onRemove={onRemove}
-              onChanged={refresh}
-            />
-          ) : view === "connect" ? (
-            <ConnectView project={project.data} sources={srcList} />
-          ) : view === "mcp" ? (
-            <MCPView
-              project={project.data}
-              requests={mcpRequests.data ?? []}
-              stats={mcpStats.data}
-            />
-          ) : view === "files" ? (
-            <FilesView
-              project={project.data}
-              files={fs.data?.files ?? []}
-              snapshotId={fs.data?.snapshot_id ?? null}
-              loading={fs.isLoading}
-              onReload={() => fs.mutate()}
-            />
-          ) : (
-            <SettingsView
-              project={project.data}
-              sources={srcList}
-              onRename={onRename}
-              onRemoveSource={onRemove}
-              onDisconnect={onDisconnect}
-              onDelete={onDelete}
-            />
-          )}
+          <DashboardProvider
+            value={{
+              id,
+              project: project.data,
+              sources: srcList,
+              analytics: analytics.data,
+              refresh,
+              onSync,
+              onRemove,
+              onRename,
+              onDisconnect,
+              onDelete,
+            }}
+          >
+            {children}
+          </DashboardProvider>
         </div>
       </main>
     </div>
