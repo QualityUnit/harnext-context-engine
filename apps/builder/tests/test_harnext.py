@@ -89,6 +89,29 @@ async def test_options_routing(monkeypatch):
     assert o.env.get("NVIDIA_API_KEY") == "nvapi-test"
 
 
+async def test_openrouter_routing(monkeypatch):
+    """OpenRouter (harnext 1.5): provider=openrouter, key read from the
+    OPENROUTER_API_KEY alias and re-exported under OPENROUTER_API_KEY for the CLI."""
+    cap: dict = {}
+    _patch_query(
+        monkeypatch,
+        [ResultMessage("success", False, "done", "s1", 2, 100, 0.0, {"input_tokens": 1})],
+        cap,
+    )
+    s = _settings(
+        harnext_provider="openrouter",
+        harnext_model="anthropic/claude-sonnet-4.5",
+        harnext_api_key="sk-or-test",
+        harnext_api_key_env="OPENROUTER_API_KEY",
+    )
+    await HarnextHarness(s).run(_req())
+
+    o = cap["options"]
+    assert o.provider == "openrouter"
+    assert o.model == "anthropic/claude-sonnet-4.5"
+    assert o.env.get("OPENROUTER_API_KEY") == "sk-or-test"
+
+
 async def test_transcript_maps_messages(monkeypatch):
     cap: dict = {}
     messages = [

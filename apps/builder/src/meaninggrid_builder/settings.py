@@ -28,14 +28,15 @@ class BuilderSettings(BaseSettings):
     # Harnext harness (MEANINGGRID_HARNESS=harnext): routes the harnext CLI at a
     # provider/model. The key is read from any of the aliased env vars and handed
     # to the CLI subprocess under `harnext_api_key_env` (the name the provider
-    # reads — NVIDIA NIM → NVIDIA_API_KEY). `harnext_model` overrides builder_model
-    # so the same deployment can run Claude on one harness and DeepSeek on this one.
+    # reads — NVIDIA NIM → NVIDIA_API_KEY, OpenRouter → OPENROUTER_API_KEY).
+    # `harnext_model` overrides builder_model so the same deployment can run Claude
+    # on one harness and an OpenRouter model on this one.
     harnext_provider: str | None = Field(default=None, validation_alias="HARNEXT_PROVIDER")
     harnext_model: str | None = Field(default=None, validation_alias="HARNEXT_MODEL")
     harnext_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "HARNEXT_API_KEY", "NVIDIA_NIM_API_KEY", "NVIDIA_API_KEY"
+            "HARNEXT_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_NIM_API_KEY", "NVIDIA_API_KEY"
         ),
     )
     harnext_api_key_env: str = Field(default="NVIDIA_API_KEY", validation_alias="HARNEXT_API_KEY_ENV")
