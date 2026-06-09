@@ -29,6 +29,8 @@ export interface Project {
   discord_connected: boolean;
   liveagent_base_url: string | null;
   liveagent_connected: boolean;
+  stripe_account_name: string | null;
+  stripe_connected: boolean;
 }
 
 export interface Source {
@@ -192,6 +194,13 @@ export const api = {
   listDepartments: (projectId: string) =>
     req<Department[]>(`/liveagent/departments?project_id=${projectId}`),
   listTags: (projectId: string) => req<Tag[]>(`/liveagent/tags?project_id=${projectId}`),
+
+  // Stripe (no OAuth): store a read-only Restricted key; all events are then indexed.
+  connectStripe: (projectId: string, api_key: string) =>
+    req<Project>(`/projects/${projectId}/integrations/stripe`, {
+      ...json({ api_key }),
+      method: "PUT",
+    }),
 
   createSource: (
     project_id: string,

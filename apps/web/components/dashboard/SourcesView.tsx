@@ -62,23 +62,27 @@ function SourceCard({
         ? Icon.discord
         : s.kind === "liveagent"
           ? Icon.liveagent
-          : s.kind === "youtube"
-            ? Icon.youtube
-            : s.kind === "sitemap"
-              ? Icon.globe
-              : s.kind === "url"
-                ? Icon.link
-                : Icon.slack;
+          : s.kind === "stripe"
+            ? Icon.stripe
+            : s.kind === "youtube"
+              ? Icon.youtube
+              : s.kind === "sitemap"
+                ? Icon.globe
+                : s.kind === "url"
+                  ? Icon.link
+                  : Icon.slack;
   const noun =
     s.kind === "github"
       ? "repository"
       : s.kind === "liveagent"
         ? "department"
-        : s.kind === "sitemap"
-          ? "website"
-          : s.kind === "url"
-            ? "page"
-            : "channel";
+        : s.kind === "stripe"
+          ? "account"
+          : s.kind === "sitemap"
+            ? "website"
+            : s.kind === "url"
+              ? "page"
+              : "channel";
   const watching = st === "live";
 
   return (
@@ -167,7 +171,7 @@ function AddSourceModal({
   onAdded: () => void;
 }) {
   const [step, setStep] = useState<
-    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap" | "url"
+    "pick" | "github" | "slack" | "discord" | "liveagent" | "stripe" | "youtube" | "sitemap" | "url"
   >("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
@@ -177,6 +181,8 @@ function AddSourceModal({
   const [dept, setDept] = useState("");
   const [tag, setTag] = useState("");
   const [laConnected, setLaConnected] = useState(project.liveagent_connected);
+  const [stripeKey, setStripeKey] = useState("");
+  const [stConnected, setStConnected] = useState(project.stripe_connected);
   const [ytUrl, setYtUrl] = useState("");
   const [ytName, setYtName] = useState("");
   const [sitemapUrl, setSitemapUrl] = useState("");
@@ -228,8 +234,25 @@ function AddSourceModal({
     setBusy(false);
   }
 
+  // Stripe has no OAuth: store the read-only Restricted key, then reveal the
+  // confirm step (one account = one event stream, so there's no sub-resource to pick).
+  async function connectStripe() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.connectStripe(project.id, stripeKey.trim());
+    } catch (e) {
+      setErr(errMsg(e));
+      setBusy(false);
+      return;
+    }
+    setStConnected(true);
+    onAdded(); // refresh the parent project so Settings reflects the integration
+    setBusy(false);
+  }
+
   async function connect(
-    kind: "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap" | "url",
+    kind: "github" | "slack" | "discord" | "liveagent" | "stripe" | "youtube" | "sitemap" | "url",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -282,11 +305,13 @@ function AddSourceModal({
             ? "Connect a Discord channel"
             : step === "liveagent"
               ? "Connect a LiveAgent department"
-              : step === "youtube"
-                ? "Add a YouTube channel"
-                : step === "url"
-                  ? "Add a single page"
-                  : "Crawl a website";
+              : step === "stripe"
+                ? "Connect Stripe"
+                : step === "youtube"
+                  ? "Add a YouTube channel"
+                  : step === "url"
+                    ? "Add a single page"
+                    : "Crawl a website";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -347,6 +372,18 @@ function AddSourceModal({
                 <span>
                   <span className="pick-name">LiveAgent department</span>
                   <span className="pick-sub">Helpdesk tickets &amp; conversations</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
+              <button className="pick-card" onClick={() => setStep("stripe")}>
+                <span className="src-ic stripe lg">
+                  <Icon.stripe size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">Stripe account</span>
+                  <span className="pick-sub">Payments, customers &amp; subscription events</span>
                 </span>
                 <span className="pick-go">
                   <Icon.chevronR size={15} />
@@ -802,6 +839,100 @@ function AddSourceModal({
           </div>
         )}
 
+        {step === "stripe" && (
+          <div className="modal-body">
+            {stConnected ? (
+              <>
+                <p className="modal-note">
+                  {project.stripe_account_name ? `${project.stripe_account_name} · ` : ""}MeaningGrid
+                  indexes <b>every event</b> your Stripe account emits — payments, customers,
+                  invoices, subscriptions and more — and keeps it current on each sync.
+                </p>
+                {err && <p className="modal-err">{err}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={busy}
+                    onClick={() => connect("stripe", {})}
+                  >
+                    <Icon.plus size={15} />
+                    {busy ? "Connecting…" : "Index Stripe events"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="modal-note">
+                  Connect Stripe with a read-only Restricted API key. Every event your account emits
+                  is then indexed — no further setup.
+                </p>
+                <label className="field-label">Restricted API key</label>
+                <div className="field">
+                  <span className="field-ic">
+                    <Icon.stripe size={15} />
+                  </span>
+                  <input
+                    autoFocus
+                    type="password"
+                    value={stripeKey}
+                    onChange={(e) => setStripeKey(e.target.value)}
+                    placeholder="rk_live_…  (or rk_test_…)"
+                  />
+                </div>
+                <p className="modal-note">
+                  Create a read-only key in Stripe under{" "}
+                  <button className="help-toggle" onClick={() => setShowHelp((s) => !s)}>
+                    {showHelp ? "hide steps" : "Developers → API keys → Restricted keys"}
+                  </button>
+                  .
+                </p>
+                {showHelp && (
+                  <div className="token-help">
+                    <b>Stripe read-only Restricted key</b>
+                    <ol>
+                      <li>
+                        In the Stripe Dashboard, open{" "}
+                        <a
+                          href="https://dashboard.stripe.com/apikeys"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Developers → API keys
+                        </a>{" "}
+                        and click <b>Create restricted key</b>.
+                      </li>
+                      <li>
+                        Set <b>Events</b> to <b>Read</b> (the one permission a source needs). Leave
+                        everything else <i>None</i> — MeaningGrid only ever reads.
+                      </li>
+                      <li>
+                        Create the key, copy the <code>rk_…</code> value and paste it above.
+                      </li>
+                    </ol>
+                  </div>
+                )}
+                {err && <p className="modal-err">{err}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setStep("pick")}>
+                    Back
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={busy || !stripeKey.trim()}
+                    onClick={connectStripe}
+                  >
+                    <Icon.stripe size={15} />
+                    {busy ? "Connecting…" : "Connect Stripe"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {step === "youtube" && (
           <div className="modal-body">
             <label className="field-label">Channel</label>
@@ -1046,7 +1177,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub, Slack, Discord, LiveAgent, YouTube, a website or a page</span>
+          <span className="add-sub">GitHub, Slack, Discord, LiveAgent, Stripe, YouTube, a website or a page</span>
         </button>
       </div>
 

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from meaninggrid_ingest.connectors.base import Connector, EventConnector
 
-SUPPORTED_KINDS = ("github", "slack", "discord", "liveagent", "youtube", "sitemap", "url")
+SUPPORTED_KINDS = (
+    "github",
+    "slack",
+    "discord",
+    "liveagent",
+    "stripe",
+    "youtube",
+    "sitemap",
+    "url",
+)
 
 
 def get_connector(kind: str, *, github_per_page: int = 30) -> Connector:
@@ -24,6 +33,10 @@ def get_connector(kind: str, *, github_per_page: int = 30) -> Connector:
         from meaninggrid_ingest.connectors.liveagent import LiveAgentConnector
 
         return LiveAgentConnector()
+    if kind == "stripe":
+        from meaninggrid_ingest.connectors.stripe import StripeConnector
+
+        return StripeConnector()
     if kind == "youtube":
         from meaninggrid_ingest.connectors.youtube import YouTubeConnector
 
