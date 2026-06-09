@@ -685,6 +685,15 @@ wheels = [
 ]
 
 [[package]]
+name = "harnext"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/09/c67a3b6375458a1faf220da8c8b2d612e01bfeddb80a6330c177396eaa9f/harnext-1.4.0.tar.gz", hash = "sha256:43c609b398235fe72ff6208cc5435661382536dffcc272ef9055248067963d71", size = 16023 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/de/39a3f53e2349ad23cfd0b39970fc4290e0f57f9a37fbea8b5090c594c0e4/harnext-1.4.0-py3-none-any.whl", hash = "sha256:b05010fbd62ff1358996dee446625ab612745e580b3e05dbd53c21c8bd6888b9", size = 14865 },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1054,6 +1063,7 @@ dependencies = [
     { name = "aiokafka" },
     { name = "aiosqlite" },
     { name = "claude-agent-sdk" },
+    { name = "harnext" },
     { name = "meaninggrid-shared" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1065,6 +1075,7 @@ requires-dist = [
     { name = "aiokafka", specifier = ">=0.11" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "claude-agent-sdk", specifier = ">=0.1.0" },
+    { name = "harnext", specifier = ">=1.4.0" },
     { name = "meaninggrid-shared", editable = "packages/shared" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.5" },

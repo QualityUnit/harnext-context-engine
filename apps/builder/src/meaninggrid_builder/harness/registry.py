@@ -14,6 +14,10 @@ def get_harness(name: str) -> Harness:
         from meaninggrid_builder.harness.fake import FakeHarness
 
         return FakeHarness()
+    if name == "harnext":
+        from meaninggrid_builder.harness.harnext import HarnextHarness
+
+        return HarnextHarness()
     if name == "codex":
         raise NotImplementedError("codex harness lands after claude_code")
     raise ValueError(f"unknown harness: {name!r}")
