@@ -32,7 +32,12 @@ RUN uv sync --frozen --all-packages --no-dev
 FROM python:3.12-slim-bookworm AS runtime
 
 # git              -> the AgentFS "git" backend (one repo per org; snapshots = commits)
-# node             -> the Claude Code CLI, which the Agent SDK shells out to (builder + mcp)
+# node             -> the Claude Code CLI (Agent SDK shells out to it) and the
+#                     harnext CLI (the harnext harness shells out to it, e.g. to
+#                     drive OpenRouter). Both are installed globally below. The
+#                     harnext SDK pin in apps/builder/pyproject.toml must match the
+#                     CLI version here (HARNEXT_NO_CLI_AUTOUPDATE disables the SDK's
+#                     npm self-upgrade, which can't run as the non-root app user).
 # gosu             -> drop from root (needed to chown mounted volumes) to the app user
 #                     (Claude Code refuses --dangerously-skip-permissions as root)
 # bubblewrap+socat -> the Claude Code bash sandbox (the builder allows Bash, but
@@ -44,7 +49,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates gosu curl gnupg bubblewrap socat \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g @anthropic-ai/claude-code \
+    && npm install -g @anthropic-ai/claude-code harnext@1.5.0 \
     && apt-get purge -y gnupg \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* \
@@ -58,6 +63,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
+    HARNEXT_NO_CLI_AUTOUPDATE=1 \
     HOME=/home/app \
     GIT_AUTHOR_NAME=meaninggrid \
     GIT_AUTHOR_EMAIL=builder@meaninggrid.local \
