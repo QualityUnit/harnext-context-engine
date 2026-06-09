@@ -718,6 +718,46 @@ code.ic { background: var(--bg-2); border: 1px solid var(--line); border-radius:
   .mcp-detail { padding-left: 16px; }
 }
 
+/* ===== Files / context-filesystem editor (VSCode-like) ===== */
+.fs-editor { display: grid; grid-template-columns: 264px 1fr; gap: 14px; height: calc(100vh - 200px); min-height: 420px; }
+.fs-tree { display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.fs-tree-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--tx-3); }
+.fs-tree-head > span { display: inline-flex; align-items: center; gap: 7px; }
+.fs-icon-btn { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; color: var(--tx-2); background: none; border: none; cursor: pointer; transition: .12s; }
+.fs-icon-btn:hover { background: var(--bg-2); color: var(--tx-0); }
+.fs-tree-body { flex: 1; overflow: auto; padding: 6px 0; }
+.fs-tree-empty { padding: 16px 14px; font-size: 12px; color: var(--tx-3); }
+.fs-tree-foot { padding: 8px 12px; border-top: 1px solid var(--line); font-size: 10px; color: var(--tx-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fs-node { display: flex; align-items: center; gap: 7px; width: 100%; padding: 5px 10px; font-size: 12.5px; color: var(--tx-1); background: none; border: none; text-align: left; cursor: pointer; transition: .1s; }
+.fs-node:hover { background: var(--bg-2); color: var(--tx-0); }
+.fs-node.dir { color: var(--tx-0); font-weight: 500; }
+.fs-node.dir svg { color: var(--tx-2); }
+.fs-node.file.active { background: var(--p-soft); color: var(--p-text); box-shadow: inset 2px 0 0 var(--primary); }
+.fs-node.file.active svg { color: var(--primary); }
+.fs-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-twist { display: grid; place-items: center; color: var(--tx-3); transition: transform .14s; flex: none; }
+.fs-twist[data-open="true"] { transform: rotate(90deg); }
+.fs-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); flex: none; margin-left: auto; }
+
+.fs-pane { display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; min-width: 0; }
+.fs-pane-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.fs-path { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--tx-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fs-path svg { color: var(--tx-2); flex: none; }
+.fs-pane-meta { font-size: 11px; color: var(--tx-3); white-space: nowrap; }
+.fs-status { font-size: 11.5px; font-weight: 500; margin-left: auto; white-space: nowrap; }
+.fs-status.ok { color: var(--ok); }
+.fs-status.err { color: var(--err); }
+.fs-pane-head .btn { margin-left: auto; }
+.fs-status + .btn { margin-left: 0; }
+.fs-pane-empty { flex: 1; display: grid; place-items: center; font-size: 12.5px; color: var(--tx-3); }
+.fs-text { flex: 1; width: 100%; resize: none; border: none; outline: none; background: var(--bg-0); color: var(--tx-0); padding: 16px 18px; font-family: var(--font-mono), "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; line-height: 1.7; tab-size: 2; white-space: pre; overflow: auto; }
+.fs-text::placeholder { color: var(--tx-3); }
+@media (max-width: 880px) {
+  .fs-editor { grid-template-columns: 1fr; height: auto; }
+  .fs-tree { height: 220px; }
+  .fs-text { min-height: 360px; }
+}
+
 .view { animation: fade .2s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
 @media (max-width: 880px) {

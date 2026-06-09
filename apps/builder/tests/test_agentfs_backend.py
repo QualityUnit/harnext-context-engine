@@ -82,5 +82,26 @@ async def test_full_roundtrip(store):
     assert await fs.read_file(org, "entities/note.md", snapshot_id=new_id) == "hello world"
 
 
+@pytest.mark.parametrize("store", BACKENDS, indirect=True)
+async def test_write_file_edits_live_and_snapshots(store):
+    fs, _backend_name = store
+    org = "acme"
+    await fs.ensure(org)
+
+    # write a brand-new nested file: parent dirs are created, an edit snapshot
+    # is recorded, and it becomes the latest (consistent) view
+    sid = await fs.write_file(org, "entities/repo/acme__web/OVERVIEW.md", "# acme/web\n")
+    latest = await fs.latest_snapshot(org)
+    assert latest is not None and latest.id == sid and latest.kind == "edit"
+    assert await fs.read_file(org, "entities/repo/acme__web/OVERVIEW.md") == "# acme/web\n"
+    assert await fs.read_file(org, "entities/repo/acme__web/OVERVIEW.md", snapshot_id=sid) == (
+        "# acme/web\n"
+    )
+
+    # overwrite an existing seeded file: content is replaced, not appended
+    await fs.write_file(org, "INDEX.md", "# rewritten index\n")
+    assert await fs.read_file(org, "INDEX.md") == "# rewritten index\n"
+
+
 def test_at_least_one_backend():
     assert "git" in BACKENDS  # sanity: tests actually ran a backend

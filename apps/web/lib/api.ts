@@ -105,6 +105,23 @@ export interface Health {
   oauth: { github: boolean; slack: boolean; discord: boolean; google: boolean };
 }
 
+export interface FsList {
+  files: string[];
+  snapshot_id: string | null;
+}
+
+export interface FsFile {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export interface FsWriteResult {
+  path: string;
+  size: number;
+  snapshot_id: string;
+}
+
 export interface Repo {
   full_name: string;
 }
@@ -192,6 +209,16 @@ export const api = {
   listDepartments: (projectId: string) =>
     req<Department[]>(`/liveagent/departments?project_id=${projectId}`),
   listTags: (projectId: string) => req<Tag[]>(`/liveagent/tags?project_id=${projectId}`),
+
+  // Context filesystem — the agent's working files (browse + edit).
+  listFs: (projectId: string) => req<FsList>(`/projects/${projectId}/fs`),
+  readFile: (projectId: string, path: string) =>
+    req<FsFile>(`/projects/${projectId}/fs/file?path=${encodeURIComponent(path)}`),
+  writeFile: (projectId: string, path: string, content: string) =>
+    req<FsWriteResult>(`/projects/${projectId}/fs/file`, {
+      ...json({ path, content }),
+      method: "PUT",
+    }),
 
   createSource: (
     project_id: string,

@@ -93,6 +93,34 @@ class OrgFsStore:
         ref = await self._resolve_ref(snapshot_id)
         return await asyncio.to_thread(self.backend.list_files, org_id, ref)
 
+    # -- writes -------------------------------------------------------------
+    async def write_file(self, org_id: str, relpath: str, content: str) -> str:
+        """Write one file to the live FS and capture it as a new ``edit``
+        snapshot; return the new snapshot id.
+
+        The snapshot is what makes a manual edit safe and visible: it becomes
+        the new ``latest_snapshot`` — the consistent view the MCP read path
+        mounts *and* the rollback floor for the next build, so a later failed
+        build can't silently discard the edit (BuildRunner rolls back to the
+        latest snapshot taken before it ran)."""
+        await self.ensure(org_id)
+        await asyncio.to_thread(self.backend.write_file, org_id, relpath, content)
+        parent = await self.latest_snapshot(org_id)
+        sid = uuid.uuid4().hex
+        ref = await asyncio.to_thread(self.backend.snapshot, org_id, sid)
+        async with self.sm() as s:
+            s.add(
+                FsSnapshot(
+                    id=sid,
+                    org_id=org_id,
+                    parent_snapshot_id=parent.id if parent else None,
+                    kind="edit",
+                    ref=ref,
+                )
+            )
+            await s.commit()
+        return sid
+
     async def _resolve_ref(self, snapshot_id: str | None) -> str | None:
         if snapshot_id is None:
             return None  # live working copy

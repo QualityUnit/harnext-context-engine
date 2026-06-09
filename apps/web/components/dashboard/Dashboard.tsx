@@ -7,6 +7,7 @@ import {
   api,
   fetcher,
   type Analytics,
+  type FsList,
   type McpRequest,
   type McpStats,
   type Project,
@@ -18,6 +19,7 @@ import { Sidebar, type View } from "@/components/dashboard/Sidebar";
 import { SourcesView } from "@/components/dashboard/SourcesView";
 import { ConnectView } from "@/components/dashboard/ConnectView";
 import { MCPView } from "@/components/dashboard/MCPView";
+import { FilesView } from "@/components/dashboard/FilesView";
 import { SettingsView } from "@/components/dashboard/SettingsView";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -32,6 +34,13 @@ export function Dashboard({ id }: { id: string }) {
   const search = useSearchParams();
   const [view, setView] = useState<View>("mcp");
   const [banner, setBanner] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+  // Remember the project whose Files view has been opened, so its file list
+  // stays subscribed across view switches (a conditional `null` key would drop
+  // the data, leaving the explorer empty until a manual refresh on return).
+  const [filesSeenFor, setFilesSeenFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (view === "files") setFilesSeenFor(id);
+  }, [view, id]);
 
   const projects = useSWR<Project[]>(user ? "/projects" : null, fetcher);
   const project = useSWR<Project>(user ? `/projects/${id}` : null, fetcher, { refreshInterval: 8000 });
@@ -51,6 +60,14 @@ export function Dashboard({ id }: { id: string }) {
     user && view === "mcp" ? `/projects/${id}/mcp-requests?limit=100` : null,
     fetcher,
     { refreshInterval: 5000 },
+  );
+  // The agent's context filesystem. Subscribed once Files is opened for this
+  // project and kept warm afterwards (keepPreviousData avoids an empty flash
+  // when switching back); a one-shot list, not polled.
+  const fs = useSWR<FsList>(
+    user && (view === "files" || filesSeenFor === id) ? `/projects/${id}/fs` : null,
+    fetcher,
+    { keepPreviousData: true },
   );
 
   // Surface the OAuth callback result (?connected / ?error), then clean the URL.
@@ -194,6 +211,14 @@ export function Dashboard({ id }: { id: string }) {
               project={project.data}
               requests={mcpRequests.data ?? []}
               stats={mcpStats.data}
+            />
+          ) : view === "files" ? (
+            <FilesView
+              project={project.data}
+              files={fs.data?.files ?? []}
+              snapshotId={fs.data?.snapshot_id ?? null}
+              loading={fs.isLoading}
+              onReload={() => fs.mutate()}
             />
           ) : (
             <SettingsView

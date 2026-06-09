@@ -128,6 +128,18 @@ class AgentFsBackend:
             return None
         return p.stdout
 
+    def write_file(self, org_id: str, relpath: str, content: str) -> None:
+        # Stage the file natively under its relpath, then copy the tree into the
+        # mount (`cp -r <stage>/. .`) — same import path as ensure_seeded, so the
+        # parent directories are created and an existing file is overwritten.
+        with tempfile.TemporaryDirectory(prefix=f"edit-{org_id}-") as stage:
+            dst = Path(stage) / relpath
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(content)
+            res = self._exec(org_id, ["cp", "-r", f"{stage}/.", "."], env={}, timeout_s=60)
+            if not res.ok:
+                raise RuntimeError(f"agentfs write failed: {res.stderr or res.stdout}")
+
     def list_files(self, org_id: str, ref: str | None = None) -> list[str]:
         p = subprocess.run(
             [self.bin, "fs", self._target(org_id, ref), "ls", "/"],

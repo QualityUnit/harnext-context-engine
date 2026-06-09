@@ -182,4 +182,29 @@ export const Icon = {
       <line x1="21" y1="12" x2="9" y2="12" />
     </Svg>
   ),
+  // Files (nav) — stacked sheets, the "context filesystem" glyph.
+  files: (p: P) => (
+    <Svg {...p}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <polyline points="14 2 14 8 20 8" />
+    </Svg>
+  ),
+  folder: (p: P) => (
+    <Svg {...p}>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    </Svg>
+  ),
+  file: (p: P) => (
+    <Svg {...p}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <polyline points="14 2 14 8 20 8" />
+    </Svg>
+  ),
+  save: (p: P) => (
+    <Svg {...p}>
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </Svg>
+  ),
 };

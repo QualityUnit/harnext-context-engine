@@ -86,6 +86,11 @@ class GitBackend:
         f = self._dir(org_id) / relpath
         return f.read_text() if f.exists() else None
 
+    def write_file(self, org_id: str, relpath: str, content: str) -> None:
+        dst = self._dir(org_id) / relpath
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(content)
+
     def list_files(self, org_id: str, ref: str | None = None) -> list[str]:
         if ref:
             out = subprocess.run(
