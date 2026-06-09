@@ -66,7 +66,9 @@ function SourceCard({
             ? Icon.youtube
             : s.kind === "sitemap"
               ? Icon.globe
-              : Icon.slack;
+              : s.kind === "url"
+                ? Icon.link
+                : Icon.slack;
   const noun =
     s.kind === "github"
       ? "repository"
@@ -74,7 +76,9 @@ function SourceCard({
         ? "department"
         : s.kind === "sitemap"
           ? "website"
-          : "channel";
+          : s.kind === "url"
+            ? "page"
+            : "channel";
   const watching = st === "live";
 
   return (
@@ -163,7 +167,7 @@ function AddSourceModal({
   onAdded: () => void;
 }) {
   const [step, setStep] = useState<
-    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap"
+    "pick" | "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap" | "url"
   >("pick");
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
@@ -176,6 +180,7 @@ function AddSourceModal({
   const [ytUrl, setYtUrl] = useState("");
   const [ytName, setYtName] = useState("");
   const [sitemapUrl, setSitemapUrl] = useState("");
+  const [pageUrl, setPageUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -224,7 +229,7 @@ function AddSourceModal({
   }
 
   async function connect(
-    kind: "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap",
+    kind: "github" | "slack" | "discord" | "liveagent" | "youtube" | "sitemap" | "url",
     config: Record<string, unknown>,
     secret?: string | null,
   ) {
@@ -279,7 +284,9 @@ function AddSourceModal({
               ? "Connect a LiveAgent department"
               : step === "youtube"
                 ? "Add a YouTube channel"
-                : "Crawl a website";
+                : step === "url"
+                  ? "Add a single page"
+                  : "Crawl a website";
 
   return (
     <div className="modal-wrap" onMouseDown={onClose}>
@@ -364,6 +371,18 @@ function AddSourceModal({
                 <span>
                   <span className="pick-name">Website (sitemap)</span>
                   <span className="pick-sub">Crawl pages from a sitemap.xml</span>
+                </span>
+                <span className="pick-go">
+                  <Icon.chevronR size={15} />
+                </span>
+              </button>
+              <button className="pick-card" onClick={() => setStep("url")}>
+                <span className="src-ic url lg">
+                  <Icon.link size={22} />
+                </span>
+                <span>
+                  <span className="pick-name">Single page (URL)</span>
+                  <span className="pick-sub">Index one web page by its URL</span>
                 </span>
                 <span className="pick-go">
                   <Icon.chevronR size={15} />
@@ -873,6 +892,44 @@ function AddSourceModal({
             </div>
           </div>
         )}
+
+        {step === "url" && (
+          <div className="modal-body">
+            <label className="field-label">Page URL</label>
+            <div className="field">
+              <span className="field-ic">
+                <Icon.link size={15} />
+              </span>
+              <input
+                autoFocus
+                value={pageUrl}
+                onChange={(e) => setPageUrl(e.target.value)}
+                placeholder="https://example.com/docs/getting-started"
+              />
+            </div>
+            <p className="modal-note">
+              We fetch this one page and index its readable text. Each sync re-checks it and only
+              re-indexes when the page actually changed.
+            </p>
+            {err && <p className="modal-err">{err}</p>}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setStep("pick")}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy || !pageUrl.trim()}
+                onClick={() => {
+                  const v = pageUrl.trim();
+                  connect("url", { url: /^https?:\/\//i.test(v) ? v : `https://${v}` });
+                }}
+              >
+                <Icon.plus size={15} />
+                {busy ? "Adding…" : "Add page"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -989,7 +1046,7 @@ export function SourcesView({
             <Icon.plus size={20} />
           </span>
           <span className="add-label">Add source</span>
-          <span className="add-sub">GitHub, Slack, Discord, LiveAgent, YouTube or a website</span>
+          <span className="add-sub">GitHub, Slack, Discord, LiveAgent, YouTube, a website or a page</span>
         </button>
       </div>
 

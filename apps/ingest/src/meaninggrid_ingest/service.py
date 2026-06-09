@@ -427,14 +427,19 @@ class SourceService:
     def _connector(self, kind: str):
         """Build a connector for ``kind``, threading in the relevant settings.
 
-        Sitemap needs the deployment's crawl budget, so it's built from settings
-        rather than the registry's bare defaults; everything else goes through the
-        registry. (Tests monkeypatch ``get_connector`` for the non-sitemap kinds.)
+        The web kinds (sitemap, url) need the deployment's crawl budget, so
+        they're built from settings rather than the registry's bare defaults;
+        everything else goes through the registry. (Tests monkeypatch
+        ``get_connector`` for the registry-built kinds.)
         """
         if kind == "sitemap":
             from meaninggrid_ingest.connectors.sitemap import SitemapConnector
 
             return SitemapConnector.from_settings(self.s)
+        if kind == "url":
+            from meaninggrid_ingest.connectors.url import UrlConnector
+
+            return UrlConnector.from_settings(self.s)
         return get_connector(kind, github_per_page=self.s.github_per_page)
 
     async def claim_due_polls(self, now: datetime | None = None) -> list[str]:
