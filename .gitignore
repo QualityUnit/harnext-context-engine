@@ -27,6 +27,11 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# Playwright e2e artifacts
+test-results/
+playwright-report/
+.playwright/
+
 # Env
 .env
 .env.local

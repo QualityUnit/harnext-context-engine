@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { User } from "@/lib/api";
 import type { Ws } from "@/lib/workspace";
 import { Icon } from "@/components/DashIcons";
-
-export type View = "sources" | "connect" | "mcp" | "settings";
 
 function WorkspaceSwitcher({
   workspaces,
@@ -94,29 +94,32 @@ function WorkspaceSwitcher({
 }
 
 export function Sidebar({
+  id,
   workspaces,
   current,
-  view,
   user,
-  onView,
   onSwitch,
   onCreate,
   onLogout,
 }: {
+  id: string;
   workspaces: Ws[];
   current: Ws;
-  view: View;
   user: User | null;
-  onView: (v: View) => void;
   onSwitch: (id: string) => void;
   onCreate: () => void;
   onLogout: () => void;
 }) {
+  const pathname = usePathname();
+  const base = `/projects/${id}`;
   const nav = [
-    { id: "mcp" as const, label: "Dashboard", icon: Icon.activity },
-    { id: "sources" as const, label: "Sources", icon: Icon.sources },
-    { id: "connect" as const, label: "Connect", icon: Icon.connect },
+    { href: base, label: "Dashboard", icon: Icon.activity },
+    { href: `${base}/sources`, label: "Sources", icon: Icon.sources },
+    { href: `${base}/connect`, label: "Connect", icon: Icon.connect },
   ];
+  // The index route ("Dashboard") matches exactly; sub-views match by prefix so
+  // they stay highlighted on nested paths.
+  const isActive = (href: string) => (href === base ? pathname === base : pathname.startsWith(href));
   const label = user?.name || user?.email || "self-hosted";
   const initials = (user?.name || user?.email || "MG")
     .split(/[\s@.]+/)
@@ -139,25 +142,21 @@ export function Sidebar({
 
       <nav className="nav">
         {nav.map((n) => (
-          <button
-            key={n.id}
-            className={"nav-item" + (view === n.id ? " active" : "")}
-            onClick={() => onView(n.id)}
-          >
+          <Link key={n.href} href={n.href} className={"nav-item" + (isActive(n.href) ? " active" : "")}>
             <n.icon size={17} />
             <span>{n.label}</span>
-          </button>
+          </Link>
         ))}
       </nav>
 
       <div className="sidebar-foot">
-        <button
-          className={"nav-item" + (view === "settings" ? " active" : "")}
-          onClick={() => onView("settings")}
+        <Link
+          href={`${base}/settings`}
+          className={"nav-item" + (isActive(`${base}/settings`) ? " active" : "")}
         >
           <Icon.settings size={17} />
           <span>Settings</span>
-        </button>
+        </Link>
         <div className="user">
           <span className="user-av">
             {user?.avatar_url ? (
