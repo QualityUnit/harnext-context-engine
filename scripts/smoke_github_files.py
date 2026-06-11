@@ -5,16 +5,16 @@ file content to the raw topic, then watches the pipeline carry it through:
 
     raw → classifier → fast/batch → builder → agent reads `_event/` → org FS
 
-    uv run --package meaninggrid-builder python scripts/smoke_github_files.py [org]
+    uv run --package harnext-builder python scripts/smoke_github_files.py [org]
 
 Run the stack first (`make up`, then the classifier + builder, or docker-compose).
-Use MEANINGGRID_HARNESS=fake to run without an Anthropic key — the fake harness
+Use HARNEXT_HARNESS=fake to run without an Anthropic key — the fake harness
 folds the `_event/` files it sees into `_meta/last_build.md`, so you can confirm
 the agent actually had access:
 
     agentfs fs ./data/agentfs/.agentfs/<org>.db cat _meta/last_build.md
 
-With MEANINGGRID_HARNESS=claude_code, inspect the entity OVERVIEW/timeline the
+With HARNEXT_HARNESS=claude_code, inspect the entity OVERVIEW/timeline the
 agent wrote — it should reflect what the changed file actually did, not just the
 commit message.
 """
@@ -24,7 +24,7 @@ import sys
 from datetime import UTC, datetime
 
 from aiokafka import AIOKafkaProducer
-from meaninggrid_shared import RAW_EVENTS_TOPIC, CloudEvent
+from harnext_shared import RAW_EVENTS_TOPIC, CloudEvent
 
 _APP_PY = '''\
 def charge(amount_cents: int, currency: str = "usd") -> dict:

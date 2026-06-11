@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create a MeaningGrid account on this server (registration is invite-only).
+# Create a Harnext account on this server (registration is invite-only).
 #
 #   ./scripts/create-user.sh <email> [name]
 #
@@ -24,4 +24,4 @@ read -rs -p "Confirm password: " PW2; echo
 set -- create-user --email "$EMAIL" --password-stdin
 [ -n "$NAME" ] && set -- "$@" --name "$NAME"
 
-printf '%s\n' "$PW" | $COMPOSE exec -T ingest python -m meaninggrid_ingest.admin "$@"
+printf '%s\n' "$PW" | $COMPOSE exec -T ingest python -m harnext_ingest.admin "$@"

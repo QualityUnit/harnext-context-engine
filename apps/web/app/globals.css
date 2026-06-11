@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ===== MeaningGrid design tokens (from the Claude Design handoff) ===== */
+/* ===== Harnext design tokens (from the Claude Design handoff) ===== */
 :root {
   --primary: #ffa63d;
   --bg-0: oklch(0.165 0.006 270);

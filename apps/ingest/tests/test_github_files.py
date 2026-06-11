@@ -1,11 +1,11 @@
 """Changed-file enrichment: fetch commit/PR files, apply caps, fail soft."""
 
 import httpx
-from meaninggrid_ingest.connectors import github
-from meaninggrid_ingest.connectors.github import enrich_files
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_ingest.connectors import github
+from harnext_ingest.connectors.github import enrich_files
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 
 class _FakeProducer:
@@ -140,7 +140,7 @@ async def test_webhook_event_carries_files_into_produced_event(tmp_path, monkeyp
         if ev_type == "com.github.commit":
             data["files"] = [{"path": "src/app.py", "status": "modified", "content": "x\n"}]
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.github.enrich_files", fake_enrich)
+    monkeypatch.setattr("harnext_ingest.connectors.github.enrich_files", fake_enrich)
 
     engine = make_engine(f"sqlite+aiosqlite:///{tmp_path}/meta.sqlite")
     await init_db(engine)

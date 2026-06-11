@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from meaninggrid_ingest import crawler
-from meaninggrid_ingest.connectors.sitemap import (
+from harnext_ingest import crawler
+from harnext_ingest.connectors.sitemap import (
     SitemapConnector,
     SitemapEntry,
     TransientCrawlError,
@@ -21,9 +21,9 @@ from meaninggrid_ingest.connectors.sitemap import (
     parse_sitemap,
     select_entries,
 )
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 # -- test doubles -----------------------------------------------------------
 

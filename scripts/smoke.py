@@ -3,10 +3,10 @@
 No GitHub/Slack network needed. Produces a few normal commits (→ batch lane) and
 one P0 issue (→ fast lane) for org `acme`, subject `repo:acme/web`.
 
-    uv run --package meaninggrid-builder python scripts/smoke.py [org] [n_commits]
+    uv run --package harnext-builder python scripts/smoke.py [org] [n_commits]
 
 Watch the classifier route them and the builder incorporate them into the org's
-AgentFS. Use MEANINGGRID_HARNESS=fake to run without an Anthropic key.
+AgentFS. Use HARNEXT_HARNESS=fake to run without an Anthropic key.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 
 from aiokafka import AIOKafkaProducer
-from meaninggrid_shared import RAW_EVENTS_TOPIC, CloudEvent
+from harnext_shared import RAW_EVENTS_TOPIC, CloudEvent
 
 
 async def main() -> None:

@@ -22,7 +22,7 @@ export type SelectOption = {
 type PopPos = { left: number; top: number; width: number; maxHeight: number; up: boolean };
 
 /**
- * Custom dropdown that matches the MeaningGrid design system (see `.sel*` in
+ * Custom dropdown that matches the Harnext design system (see `.sel*` in
  * globals.css). Drop-in replacement for a native <select>: controlled via
  * `value` / `onChange`, with keyboard nav, click-outside, and a placeholder.
  *

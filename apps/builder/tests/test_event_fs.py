@@ -2,10 +2,10 @@
 
 from datetime import UTC, datetime
 
-from meaninggrid_builder.event_fs import EVENT_DIR, MANIFEST, event_files, rel_for, safe_id
-from meaninggrid_builder.prompts import render_instruction
-from meaninggrid_builder.work_item import WorkItem
-from meaninggrid_shared import CloudEvent
+from harnext_builder.event_fs import EVENT_DIR, MANIFEST, event_files, rel_for, safe_id
+from harnext_builder.prompts import render_instruction
+from harnext_builder.work_item import WorkItem
+from harnext_shared import CloudEvent
 
 
 def _commit(eid="github-commit-acme/web-abc", files=None) -> CloudEvent:

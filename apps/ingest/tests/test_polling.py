@@ -2,9 +2,9 @@
 
 from datetime import timedelta
 
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import (
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import (
     SourcePollState,
     init_db,
     make_engine,
@@ -116,11 +116,11 @@ async def test_poll_state_deleted_with_project(tmp_path):
 
 
 def test_celery_app_and_tasks_registered():
-    import meaninggrid_ingest.tasks  # noqa: F401  — registers the tasks
-    from meaninggrid_ingest.celery_app import app
+    import harnext_ingest.tasks  # noqa: F401  — registers the tasks
+    from harnext_ingest.celery_app import app
 
     sched = app.conf.beat_schedule
     assert "dispatch-due-polls" in sched
     assert sched["dispatch-due-polls"]["schedule"] == 60.0
-    assert "meaninggrid_ingest.tasks.dispatch_due_polls" in app.tasks
-    assert "meaninggrid_ingest.tasks.poll_source" in app.tasks
+    assert "harnext_ingest.tasks.dispatch_due_polls" in app.tasks
+    assert "harnext_ingest.tasks.poll_source" in app.tasks

@@ -3,13 +3,13 @@
 import uuid
 from pathlib import Path
 
-from meaninggrid_builder.agentfs.backend import get_backend
-from meaninggrid_builder.agentfs.store import OrgFsStore
-from meaninggrid_builder.build_runner import BuildRunner
-from meaninggrid_builder.persistence import Persistence
-from meaninggrid_builder.reconcile import reconcile
-from meaninggrid_builder.settings import BuilderSettings
-from meaninggrid_shared import BuildLedger, init_db, make_engine, make_sessionmaker
+from harnext_builder.agentfs.backend import get_backend
+from harnext_builder.agentfs.store import OrgFsStore
+from harnext_builder.build_runner import BuildRunner
+from harnext_builder.persistence import Persistence
+from harnext_builder.reconcile import reconcile
+from harnext_builder.settings import BuilderSettings
+from harnext_shared import BuildLedger, init_db, make_engine, make_sessionmaker
 
 
 async def test_reconcile_rolls_back_and_fails_orphans(tmp_path):

@@ -148,7 +148,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
             <span className="brand-grid" />
           </span>
           <div className="fc-wordmark">
-            MeaningGrid<span className="fc-oss">OSS</span>
+            Harnext<span className="fc-oss">OSS</span>
           </div>
         </div>
 
@@ -170,7 +170,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         ) : (
           <>
             <div className="fc-head">
-              <div className="fc-title">{isSignup ? "Create your account" : "Sign in to MeaningGrid"}</div>
+              <div className="fc-title">{isSignup ? "Create your account" : "Sign in to Harnext"}</div>
               <div className="fc-sub">
                 {isSignup
                   ? "Start indexing context in under a minute."

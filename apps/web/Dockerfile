@@ -1,7 +1,7 @@
 # Next.js 15 (standalone) production image for the dashboard.
 #
 # Build from the repo root (needs the pnpm workspace files):
-#   docker build -f apps/web/Dockerfile -t meaninggrid-web .
+#   docker build -f apps/web/Dockerfile -t harnext-web .
 #
 # The client calls the API/MCP through the reverse proxy on the SAME origin, so
 # the image is domain-agnostic: NEXT_PUBLIC_API_BASE_URL defaults to the
@@ -22,7 +22,7 @@ COPY apps/web ./apps/web
 ARG NEXT_PUBLIC_API_BASE_URL=/api
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
     NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter @meaninggrid/web build
+RUN pnpm --filter @harnext/web build
 
 # ---- runtime stage ---------------------------------------------------------
 FROM node:20-slim AS runtime

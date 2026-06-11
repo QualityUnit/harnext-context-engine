@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from meaninggrid_ingest.connectors.url import UrlConnector, normalize_url, page_event
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_ingest.connectors.url import UrlConnector, normalize_url, page_event
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 
 class FakeProducer:

@@ -3,13 +3,13 @@
 from datetime import UTC, datetime
 
 import pytest
-from meaninggrid_ingest import oauth
-from meaninggrid_ingest.connectors.base import FetchResult
-from meaninggrid_ingest.connectors.github import GitHubConnector
-from meaninggrid_ingest.security import create_token, decode_token, hash_password, verify_password
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import CloudEvent, init_db, make_engine, make_sessionmaker
+from harnext_ingest import oauth
+from harnext_ingest.connectors.base import FetchResult
+from harnext_ingest.connectors.github import GitHubConnector
+from harnext_ingest.security import create_token, decode_token, hash_password, verify_password
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import CloudEvent, init_db, make_engine, make_sessionmaker
 
 
 class FakeProducer:
@@ -38,7 +38,7 @@ def test_security_primitives():
 
 
 def test_mcp_token_roundtrip():
-    from meaninggrid_shared import create_mcp_token, decode_mcp_token
+    from harnext_shared import create_mcp_token, decode_mcp_token
 
     tok = create_mcp_token("org-xyz", "s3cret")
     assert decode_mcp_token(tok, "s3cret") == "org-xyz"
@@ -97,7 +97,7 @@ async def test_sync_under_project(tmp_path, monkeypatch):
             data={},
         )
         monkeypatch.setattr(
-            "meaninggrid_ingest.service.get_connector",
+            "harnext_ingest.service.get_connector",
             lambda kind, **kw: _FakeConnector([ev], "c1"),
         )
         src = await svc.create_source(proj.id, "github", {"repo": "acme/web"}, None)
@@ -126,7 +126,7 @@ async def test_delete_project_cascades(tmp_path, monkeypatch):
             data={},
         )
         monkeypatch.setattr(
-            "meaninggrid_ingest.service.get_connector",
+            "harnext_ingest.service.get_connector",
             lambda kind, **kw: _FakeConnector([ev], "c1"),
         )
         src = await svc.create_source(proj.id, "github", {"repo": "acme/web"}, None)
@@ -146,7 +146,7 @@ async def test_delete_project_cascades(tmp_path, monkeypatch):
 async def test_mcp_request_analytics_and_list(tmp_path):
     """MCP request rows feed the dashboard: a newest-first list + a per-day /
     per-tool / error aggregate, scoped to the project and cleaned up on delete."""
-    from meaninggrid_shared import McpRequest
+    from harnext_shared import McpRequest
 
     svc, engine, _ = await _svc(tmp_path)
     try:
@@ -196,10 +196,10 @@ async def test_mcp_request_analytics_and_list(tmp_path):
 async def test_mcp_requests_endpoint(tmp_path):
     """The owned-project guard + JSON round-trip on the two MCP-activity routes."""
     import httpx
-    from meaninggrid_ingest.main import app
-    from meaninggrid_ingest.main import current_user as user_dep
-    from meaninggrid_ingest.main import service as service_dep
-    from meaninggrid_shared import McpRequest
+    from harnext_ingest.main import app
+    from harnext_ingest.main import current_user as user_dep
+    from harnext_ingest.main import service as service_dep
+    from harnext_shared import McpRequest
 
     svc, engine, _ = await _svc(tmp_path)
     try:
@@ -252,7 +252,7 @@ def test_slack_signature_verify():
     import hmac
     import time as _t
 
-    from meaninggrid_ingest.security import verify_slack_signature
+    from harnext_ingest.security import verify_slack_signature
 
     secret, body = "shh", '{"x":1}'
     ts = str(int(_t.time()))
@@ -287,9 +287,9 @@ async def test_slack_webhook_endpoint(tmp_path):
     import time as _t
 
     import httpx
-    from meaninggrid_ingest.main import app
-    from meaninggrid_ingest.main import service as service_dep
-    from meaninggrid_ingest.main import settings as settings_dep
+    from harnext_ingest.main import app
+    from harnext_ingest.main import service as service_dep
+    from harnext_ingest.main import settings as settings_dep
 
     svc, engine, producer = await _svc(tmp_path)
     try:
@@ -345,7 +345,7 @@ def test_github_signature_verify():
     import hashlib
     import hmac
 
-    from meaninggrid_ingest.security import verify_github_signature
+    from harnext_ingest.security import verify_github_signature
 
     secret, body = "ghsecret", b'{"zen":"hi"}'
     sig = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -359,7 +359,7 @@ async def test_github_event_routing(tmp_path, monkeypatch):
     async def _noop(client, repo, ev_type, data):
         return None
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.github.enrich_files", _noop)
+    monkeypatch.setattr("harnext_ingest.connectors.github.enrich_files", _noop)
     svc, engine, producer = await _svc(tmp_path)
     try:
         u = await svc.register("a@b.com", "hunter2", "A")
@@ -405,12 +405,12 @@ async def test_github_webhook_endpoint(tmp_path, monkeypatch):
     async def _noop(client, repo, ev_type, data):
         return None
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.github.enrich_files", _noop)
+    monkeypatch.setattr("harnext_ingest.connectors.github.enrich_files", _noop)
 
     import httpx
-    from meaninggrid_ingest.main import app
-    from meaninggrid_ingest.main import service as service_dep
-    from meaninggrid_ingest.main import settings as settings_dep
+    from harnext_ingest.main import app
+    from harnext_ingest.main import service as service_dep
+    from harnext_ingest.main import settings as settings_dep
 
     svc, engine, producer = await _svc(tmp_path)
     try:
@@ -464,7 +464,7 @@ async def test_github_source_autoregisters_webhook(tmp_path, monkeypatch):
             calls.append((token, repo, url, secret))
             return "hook-1"
 
-        monkeypatch.setattr("meaninggrid_ingest.oauth.github_create_webhook", fake_create)
+        monkeypatch.setattr("harnext_ingest.oauth.github_create_webhook", fake_create)
 
         u = await svc.register("a@b.com", "hunter2", "A")
         p = await svc.create_project(u.id, "P")
@@ -491,7 +491,7 @@ def test_oauth_state():
 
 
 def test_github_normalize_repo():
-    from meaninggrid_ingest.connectors.github import normalize_repo
+    from harnext_ingest.connectors.github import normalize_repo
 
     cases = {
         "QualityUnit/pyworkflow": "QualityUnit/pyworkflow",
@@ -569,7 +569,7 @@ class _FakeConnector:
 def test_slack_message_event_shape():
     """The shared chat-message builder must reproduce Slack's exact CloudEvent
     (the id is an IngestedEvent PK — drift would silently double-ingest)."""
-    from meaninggrid_ingest.connectors.slack import slack_message_event
+    from harnext_ingest.connectors.slack import slack_message_event
 
     m = {"channel": "C1", "user": "U1", "text": "hi", "ts": "1700000000.0001", "reply_count": 2}
     e = slack_message_event("org1", "C1", "eng", m)
@@ -589,8 +589,8 @@ def test_slack_message_event_shape():
 
 
 def test_event_connector_lookup():
-    from meaninggrid_ingest.connectors import event_connector
-    from meaninggrid_ingest.connectors.base import EventConnector
+    from harnext_ingest.connectors import event_connector
+    from harnext_ingest.connectors.base import EventConnector
 
     assert isinstance(event_connector("slack"), EventConnector)
     assert isinstance(event_connector("github"), EventConnector)
@@ -606,7 +606,7 @@ def test_discord_authorize_url():
 
 
 def test_discord_raise_for_status():
-    from meaninggrid_ingest.connectors.discord import DiscordConnector
+    from harnext_ingest.connectors.discord import DiscordConnector
 
     class R:
         def __init__(self, code, headers=None):
@@ -629,7 +629,7 @@ def test_discord_raise_for_status():
 
 async def test_discord_connector_builds_events(monkeypatch):
     import httpx
-    from meaninggrid_ingest.connectors.discord import DiscordConnector
+    from harnext_ingest.connectors.discord import DiscordConnector
 
     messages = [  # Discord returns newest-first
         {"id": "30", "content": "third", "timestamp": "2026-06-03T00:00:00+00:00",
@@ -704,7 +704,7 @@ async def test_discord_source_uses_bot_token(tmp_path):
 
 # -- YouTube ----------------------------------------------------------------
 def test_youtube_channel_url_resolution():
-    from meaninggrid_ingest.connectors.youtube import _channel_videos_url
+    from harnext_ingest.connectors.youtube import _channel_videos_url
 
     # a bare channel URL is normalized to the uploads (Videos) tab — extracting
     # the channel root instead returns its tabs (Videos/Shorts/…), not videos
@@ -738,7 +738,7 @@ def test_youtube_channel_url_resolution():
 
 
 def test_youtube_caption_parsers():
-    from meaninggrid_ingest.connectors.youtube import _parse_caption
+    from harnext_ingest.connectors.youtube import _parse_caption
 
     json3 = '{"events":[{"segs":[{"utf8":"first "},{"utf8":"clip"}]},{"segs":[]}]}'
     assert _parse_caption(json3, "json3") == "first clip"
@@ -751,7 +751,7 @@ def test_youtube_caption_parsers():
 
 
 def test_youtube_track_selection():
-    from meaninggrid_ingest.connectors.youtube import _select_track
+    from harnext_ingest.connectors.youtube import _select_track
 
     info = {
         "subtitles": {
@@ -786,7 +786,7 @@ class _Caps:
 
 async def test_youtube_connector_builds_events(monkeypatch):
     import httpx
-    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+    from harnext_ingest.connectors.youtube import YouTubeConnector
 
     # Channel Videos tab is newest-first; each video resolves to its captions.
     listing = {
@@ -845,7 +845,7 @@ async def test_youtube_connector_builds_events(monkeypatch):
     async def fake_get(self, url, params=None, headers=None):
         return _Caps(caps[url])
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr("harnext_ingest.connectors.youtube._extract_info", fake_extract)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
     res = await YouTubeConnector().fetch(
@@ -875,7 +875,7 @@ async def test_youtube_connector_builds_events(monkeypatch):
 
 async def test_youtube_cursor_skips_seen(monkeypatch):
     import httpx
-    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+    from harnext_ingest.connectors.youtube import YouTubeConnector
 
     listing = {
         "entries": [
@@ -897,7 +897,7 @@ async def test_youtube_cursor_skips_seen(monkeypatch):
     async def fake_get(self, url, params=None, headers=None):
         return _Caps('{"events":[{"segs":[{"utf8":"hi"}]}]}')
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr("harnext_ingest.connectors.youtube._extract_info", fake_extract)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
     # cursor at vid2 → only vid3 is new; watermark still advances to newest (vid3)
@@ -909,14 +909,14 @@ async def test_youtube_cursor_skips_seen(monkeypatch):
 
 
 async def test_youtube_video_without_captions(monkeypatch):
-    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+    from harnext_ingest.connectors.youtube import YouTubeConnector
 
     def fake_extract(url, *, flat, limit=None):
         if flat:
             return {"entries": [{"id": "vid1", "url": "https://www.youtube.com/watch?v=vid1"}]}
         return {"title": "No caps", "timestamp": 1717400000}  # no subtitle tracks
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr("harnext_ingest.connectors.youtube._extract_info", fake_extract)
     res = await YouTubeConnector().fetch(
         org_id="p1",
         config={"channel_id": "UC1", "channel_name": "C"},
@@ -931,7 +931,7 @@ async def test_youtube_video_without_captions(monkeypatch):
 
 async def test_youtube_derives_channel_key_from_listing(monkeypatch):
     import httpx
-    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+    from harnext_ingest.connectors.youtube import YouTubeConnector
 
     # Source configured with only a /videos URL → the canonical UC id and the
     # display name are taken from what yt-dlp reports for the listing, so the
@@ -954,7 +954,7 @@ async def test_youtube_derives_channel_key_from_listing(monkeypatch):
     async def fake_get(self, url, params=None, headers=None):
         return _Caps('{"events":[{"segs":[{"utf8":"hi"}]}]}')
 
-    monkeypatch.setattr("meaninggrid_ingest.connectors.youtube._extract_info", fake_extract)
+    monkeypatch.setattr("harnext_ingest.connectors.youtube._extract_info", fake_extract)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
     res = await YouTubeConnector().fetch(
@@ -970,8 +970,8 @@ async def test_youtube_derives_channel_key_from_listing(monkeypatch):
 
 
 async def test_youtube_source_create_and_registry(tmp_path):
-    from meaninggrid_ingest.connectors import SUPPORTED_KINDS, get_connector
-    from meaninggrid_ingest.connectors.youtube import YouTubeConnector
+    from harnext_ingest.connectors import SUPPORTED_KINDS, get_connector
+    from harnext_ingest.connectors.youtube import YouTubeConnector
 
     assert "youtube" in SUPPORTED_KINDS
     assert isinstance(get_connector("youtube"), YouTubeConnector)
