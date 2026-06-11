@@ -43,7 +43,7 @@ export default function ProjectsIndexPage() {
           <span className="brand-mark">
             <span className="brand-grid" />
           </span>
-          <span className="brand-name">MeaningGrid</span>
+          <span className="brand-name">Harnext</span>
           <span className="brand-badge">OSS</span>
           <button className="user-logout" style={{ marginLeft: "auto" }} title="Log out" onClick={() => { clearSession(); router.replace("/login"); }}>
             <Icon.logout size={15} />

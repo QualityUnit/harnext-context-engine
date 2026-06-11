@@ -64,10 +64,10 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
   const n = sources.length;
 
   // One command/config per harness — same endpoint, project-scoped bearer token.
-  const claudeCmd = `claude mcp add --transport http meaninggrid \\\n  ${endpoint} \\\n  --header "Authorization: Bearer ${token}"`;
-  const codexToml = `[mcp_servers.meaninggrid]\nurl = "${endpoint}"\nhttp_headers = { Authorization = "Bearer ${token}" }`;
+  const claudeCmd = `claude mcp add --transport http harnext \\\n  ${endpoint} \\\n  --header "Authorization: Bearer ${token}"`;
+  const codexToml = `[mcp_servers.harnext]\nurl = "${endpoint}"\nhttp_headers = { Authorization = "Bearer ${token}" }`;
   const jsonCfg = (transport: boolean) =>
-    `{\n  "mcpServers": {\n    "meaninggrid": {\n${transport ? '      "transport": "http",\n' : ""}      "url": "${endpoint}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`;
+    `{\n  "mcpServers": {\n    "harnext": {\n${transport ? '      "transport": "http",\n' : ""}      "url": "${endpoint}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`;
 
   return (
     <div className="view">
@@ -131,7 +131,7 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
       <div className="steps">
         {tab === "Claude Code" && (
           <>
-            <Step n="1" title="Add MeaningGrid as an MCP server">
+            <Step n="1" title="Add Harnext as an MCP server">
               <p className="step-p">
                 One command, run in your repo root — Claude Code writes it to <code className="ic">.mcp.json</code>.
               </p>
@@ -139,7 +139,7 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
             </Step>
             <Step n="2" title="Verify and use it">
               <p className="step-p">
-                <code className="ic">claude mcp list</code> should show <b>meaninggrid</b> connected with 3
+                <code className="ic">claude mcp list</code> should show <b>harnext</b> connected with 3
                 tools{n ? ` over ${n} source${n === 1 ? "" : "s"}` : ""}. Then just ask:
               </p>
               <Copyable code={`> why did we move incidents off the legacy queue?\n  ↳ context_research(question="…")`} />
@@ -161,7 +161,7 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
           <Step n="1" title="Add the server to Cursor">
             <p className="step-p">
               Create <code className="ic">.cursor/mcp.json</code> in your project (or edit the global one in
-              Settings → MCP), then toggle <b>meaninggrid</b> on.
+              Settings → MCP), then toggle <b>harnext</b> on.
             </p>
             <Copyable label="json" code={jsonCfg(false)} />
           </Step>
@@ -170,7 +170,7 @@ export function ConnectView({ project, sources }: { project: Project; sources: S
         {tab === "Generic MCP / CLI" && (
           <Step n="1" title="Any MCP-compatible client">
             <p className="step-p">
-              MeaningGrid speaks the streamable-HTTP MCP transport with a bearer token. Works with Cursor,
+              Harnext speaks the streamable-HTTP MCP transport with a bearer token. Works with Cursor,
               Continue, Cline and custom agents.
             </p>
             <Copyable label="json" code={jsonCfg(true)} />

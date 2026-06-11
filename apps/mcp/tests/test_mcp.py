@@ -5,14 +5,14 @@ Uses the fake harness + git backend, so no Anthropic key is needed.
 
 import uuid
 
-from meaninggrid_builder.agentfs.backend import get_backend
-from meaninggrid_builder.agentfs.store import OrgFsStore
-from meaninggrid_builder.build_runner import BuildRunner, BuildStatus
-from meaninggrid_builder.persistence import Persistence
-from meaninggrid_builder.settings import BuilderSettings
-from meaninggrid_mcp.conversation import conversation_url, get_conversation_payload
-from meaninggrid_mcp.research import research
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_builder.agentfs.backend import get_backend
+from harnext_builder.agentfs.store import OrgFsStore
+from harnext_builder.build_runner import BuildRunner, BuildStatus
+from harnext_builder.persistence import Persistence
+from harnext_builder.settings import BuilderSettings
+from harnext_mcp.conversation import conversation_url, get_conversation_payload
+from harnext_mcp.research import research
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 
 async def _setup(tmp_path):
@@ -56,8 +56,8 @@ async def test_update_research_and_geturls(tmp_path):
 async def test_record_request_persists_and_caps(tmp_path):
     """The activity recorder writes a row per tool call and size-caps payloads so
     a huge response can't bloat the metadata DB."""
-    from meaninggrid_mcp.activity import _RESPONSE_CAP, record_request
-    from meaninggrid_shared import McpRequest
+    from harnext_mcp.activity import _RESPONSE_CAP, record_request
+    from harnext_shared import McpRequest
     from sqlalchemy import select
 
     engine = make_engine(f"sqlite+aiosqlite:///{tmp_path}/a.sqlite")

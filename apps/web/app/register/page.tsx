@@ -12,14 +12,14 @@ export default function RegisterPage() {
             <span className="brand-grid" />
           </span>
           <div className="fc-wordmark">
-            MeaningGrid<span className="fc-oss">OSS</span>
+            Harnext<span className="fc-oss">OSS</span>
           </div>
         </div>
 
         <div className="fc-head">
           <div className="fc-title">Registration is closed</div>
           <div className="fc-sub">
-            MeaningGrid is invite-only — an admin provisions accounts. Once yours exists, sign in.
+            Harnext is invite-only — an admin provisions accounts. Once yours exists, sign in.
           </div>
         </div>
 
@@ -29,7 +29,7 @@ export default function RegisterPage() {
 
         <div className="selfhost">
           Running your own instance?{" "}
-          <a href="https://github.com/yasha-dev1/meaninggrid" target="_blank" rel="noreferrer">
+          <a href="https://github.com/yasha-dev1/harnext" target="_blank" rel="noreferrer">
             Self-host →
           </a>
         </div>

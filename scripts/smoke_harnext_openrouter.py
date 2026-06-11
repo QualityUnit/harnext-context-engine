@@ -16,7 +16,7 @@ and an OpenRouter key. Provide the key via env or the repo-root .env:
 Run:
 
     OPENROUTER_API_KEY=sk-or-... \
-      uv run --package meaninggrid-builder python scripts/smoke_harnext_openrouter.py
+      uv run --package harnext-builder python scripts/smoke_harnext_openrouter.py
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from meaninggrid_builder.harness.base import HarnessRequest
-from meaninggrid_builder.harness.harnext import HarnextHarness
-from meaninggrid_builder.settings import BuilderSettings
+from harnext_builder.harness.base import HarnessRequest
+from harnext_builder.harness.harnext import HarnextHarness
+from harnext_builder.settings import BuilderSettings
 
 _MARKER = "harnext-openrouter-ok"
 

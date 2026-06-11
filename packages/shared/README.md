@@ -1,4 +1,4 @@
-# meaninggrid-shared
+# harnext-shared
 
 Shared Python types used by `apps/api` and `apps/worker`. Three small modules:
 

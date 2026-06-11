@@ -4,11 +4,11 @@ import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from meaninggrid_builder.build_runner import BuildOutcome, BuildStatus
-from meaninggrid_builder.consumer import decode
-from meaninggrid_builder.dispatcher import Dispatcher
-from meaninggrid_builder.work_item import WorkItem
-from meaninggrid_shared import CloudEvent, ContextUnit
+from harnext_builder.build_runner import BuildOutcome, BuildStatus
+from harnext_builder.consumer import decode
+from harnext_builder.dispatcher import Dispatcher
+from harnext_builder.work_item import WorkItem
+from harnext_shared import CloudEvent, ContextUnit
 
 
 def _ev(eid, org="acme"):

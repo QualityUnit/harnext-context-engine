@@ -531,7 +531,7 @@ function AddSourceModal({
                         <b>Generate token</b>, copy the <code>github_pat_…</code> value, paste it above.
                       </li>
                     </ol>
-                    MeaningGrid only ever reads — it never writes to your repo.
+                    Harnext only ever reads — it never writes to your repo.
                   </div>
                 )}
               </>
@@ -593,7 +593,7 @@ function AddSourceModal({
             ) : slackOauth ? (
               <>
                 <p className="modal-note">
-                  Authorize MeaningGrid to read channel history (read-only). You&apos;ll pick a channel
+                  Authorize Harnext to read channel history (read-only). You&apos;ll pick a channel
                   after connecting.
                 </p>
                 {err && <p className="modal-err">{err}</p>}
@@ -667,7 +667,7 @@ function AddSourceModal({
             ) : discordOauth ? (
               <>
                 <p className="modal-note">
-                  Authorize the MeaningGrid bot to read your server&apos;s messages (read-only).
+                  Authorize the Harnext bot to read your server&apos;s messages (read-only).
                   You&apos;ll pick a channel after connecting.
                 </p>
                 {err && <p className="modal-err">{err}</p>}
@@ -814,7 +814,7 @@ function AddSourceModal({
                       </li>
                       <li>
                         Under <b>API V3</b>, create a new API key (a read-only role is enough —
-                        MeaningGrid only ever reads).
+                        Harnext only ever reads).
                       </li>
                       <li>Copy the key and paste it above, along with your install&apos;s base URL.</li>
                     </ol>
@@ -844,7 +844,7 @@ function AddSourceModal({
             {stConnected ? (
               <>
                 <p className="modal-note">
-                  {project.stripe_account_name ? `${project.stripe_account_name} · ` : ""}MeaningGrid
+                  {project.stripe_account_name ? `${project.stripe_account_name} · ` : ""}Harnext
                   indexes <b>every event</b> your Stripe account emits — payments, customers,
                   invoices, subscriptions and more — and keeps it current on each sync.
                 </p>
@@ -906,7 +906,7 @@ function AddSourceModal({
                       </li>
                       <li>
                         Set <b>Events</b> to <b>Read</b> (the one permission a source needs). Leave
-                        everything else <i>None</i> — MeaningGrid only ever reads.
+                        everything else <i>None</i> — Harnext only ever reads.
                       </li>
                       <li>
                         Create the key, copy the <code>rk_…</code> value and paste it above.

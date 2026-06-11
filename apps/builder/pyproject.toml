@@ -1,10 +1,10 @@
 [project]
-name = "meaninggrid-builder"
+name = "harnext-builder"
 version = "0.1.0"
 description = "Stateless builder consumer: runs a coding harness over each org's AgentFS to incorporate events."
 requires-python = ">=3.12"
 dependencies = [
-    "meaninggrid-shared",
+    "harnext-shared",
     "aiokafka>=0.11",
     "claude-agent-sdk>=0.1.0",
     "pydantic>=2.9",
@@ -15,11 +15,11 @@ dependencies = [
 ]
 
 [project.scripts]
-meaninggrid-builder = "meaninggrid_builder.main:run"
+harnext-builder = "harnext_builder.main:run"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/meaninggrid_builder"]
+packages = ["src/harnext_builder"]

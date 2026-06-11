@@ -35,35 +35,35 @@ ps:
 
 # Create the three lane topics (idempotent). fast=50 parts, batch=30, raw=50.
 topics:
-	docker exec meaninggrid-redpanda rpk topic create cms.events.raw.v1   -p 50 -r 1 || true
-	docker exec meaninggrid-redpanda rpk topic create cms.events.fast.v1  -p 50 -r 1 || true
-	docker exec meaninggrid-redpanda rpk topic create cms.events.batch.v1 -p 30 -r 1 || true
-	docker exec meaninggrid-redpanda rpk topic list
+	docker exec harnext-redpanda rpk topic create cms.events.raw.v1   -p 50 -r 1 || true
+	docker exec harnext-redpanda rpk topic create cms.events.fast.v1  -p 50 -r 1 || true
+	docker exec harnext-redpanda rpk topic create cms.events.batch.v1 -p 30 -r 1 || true
+	docker exec harnext-redpanda rpk topic list
 
 install:
 	uv sync
 	pnpm install
 
 ingest:
-	uv run --package meaninggrid-ingest uvicorn meaninggrid_ingest.main:app --reload --host 0.0.0.0 --port 8000
+	uv run --package harnext-ingest uvicorn harnext_ingest.main:app --reload --host 0.0.0.0 --port 8000
 
 classifier:
-	uv run --package meaninggrid-classifier python -m meaninggrid_classifier.main
+	uv run --package harnext-classifier python -m harnext_classifier.main
 
 builder:
-	uv run --package meaninggrid-builder python -m meaninggrid_builder.main
+	uv run --package harnext-builder python -m harnext_builder.main
 
 mcp:
-	uv run --package meaninggrid-mcp python -m meaninggrid_mcp.main
+	uv run --package harnext-mcp python -m harnext_mcp.main
 
 web:
-	pnpm --filter @meaninggrid/web dev --port 3100
+	pnpm --filter @harnext/web dev --port 3100
 
 worker:
-	uv run --package meaninggrid-ingest celery -A meaninggrid_ingest.celery_app worker --loglevel=info --concurrency=2
+	uv run --package harnext-ingest celery -A harnext_ingest.celery_app worker --loglevel=info --concurrency=2
 
 beat:
-	uv run --package meaninggrid-ingest celery -A meaninggrid_ingest.celery_app beat --loglevel=info
+	uv run --package harnext-ingest celery -A harnext_ingest.celery_app beat --loglevel=info
 
 fmt:
 	uv run ruff format .

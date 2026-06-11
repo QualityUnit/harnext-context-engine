@@ -1,4 +1,4 @@
-// Icon set ported from the MeaningGrid design handoff (auth.jsx).
+// Icon set ported from the Harnext design handoff (auth.jsx).
 type P = { size?: number };
 const s = (n = 16) => ({
   width: n,

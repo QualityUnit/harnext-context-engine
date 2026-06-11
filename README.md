@@ -1,4 +1,4 @@
-# MeaningGrid — Streaming Context Engine
+# Harnext — Streaming Context Engine
 
 An open-source **Context Management System (CMS)** for streaming AI agents. It
 ingests heterogeneous events (GitHub, Slack, Discord, …), routes each onto a **fast** or
@@ -44,7 +44,7 @@ apps/web   minimal UI to connect a source and watch it flow
   the result is snapshotted. A `git`-backed directory backend (used by the tests)
   is selectable via `AGENTFS_BACKEND`.
 - **Harness-agnostic**: Claude Code (Claude Agent SDK, default) or Codex behind
-  one interface; pick with `MEANINGGRID_HARNESS`. A `fake` harness runs the whole
+  one interface; pick with `HARNEXT_HARNESS`. A `fake` harness runs the whole
   pipeline deterministically without an API key.
 - **MCP is the only external surface.** External agents never touch Kafka or the
   store; they read a synthesized answer and write via an internal agent.
@@ -60,7 +60,7 @@ make install                                       # uv sync + pnpm install
 make up && make topics
 
 # 2. configure: copy .env.example → .env and set ANTHROPIC_API_KEY
-#    (or set MEANINGGRID_HARNESS=fake to run without a key)
+#    (or set HARNEXT_HARNESS=fake to run without a key)
 
 # 3. run each service in its own shell
 make ingest      # FastAPI on :8000 (serves the UI)
@@ -135,9 +135,9 @@ public GitHub repo needs no token at all; LiveAgent always uses the per-project 
 ### Smoke test (no network, no API key)
 
 ```bash
-MEANINGGRID_HARNESS=fake make classifier      # in one shell
-MEANINGGRID_HARNESS=fake make builder         # in another
-uv run --package meaninggrid-builder python scripts/smoke.py   # produce events
+HARNEXT_HARNESS=fake make classifier      # in one shell
+HARNEXT_HARNESS=fake make builder         # in another
+uv run --package harnext-builder python scripts/smoke.py   # produce events
 ```
 
 The 3 commits batch into one Context Unit; the P0 issue goes fast; the builder

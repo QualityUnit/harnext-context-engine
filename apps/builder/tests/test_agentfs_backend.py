@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from meaninggrid_builder.agentfs.agentfs_backend import AgentFsBackend, resolve_agentfs_bin
-from meaninggrid_builder.agentfs.git_backend import GitBackend
-from meaninggrid_builder.agentfs.store import OrgFsStore
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_builder.agentfs.agentfs_backend import AgentFsBackend, resolve_agentfs_bin
+from harnext_builder.agentfs.git_backend import GitBackend
+from harnext_builder.agentfs.store import OrgFsStore
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 
 def _agentfs_available() -> bool:
