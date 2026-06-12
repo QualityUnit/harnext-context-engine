@@ -114,6 +114,7 @@ export function Sidebar({
   const base = `/projects/${id}`;
   const nav = [
     { href: base, label: "Dashboard", icon: Icon.activity },
+    { href: `${base}/sessions`, label: "Sessions", icon: Icon.terminal },
     { href: `${base}/sources`, label: "Sources", icon: Icon.sources },
     { href: `${base}/files`, label: "Files", icon: Icon.files },
     { href: `${base}/connect`, label: "Connect", icon: Icon.connect },

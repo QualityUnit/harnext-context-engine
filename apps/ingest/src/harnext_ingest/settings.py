@@ -25,6 +25,19 @@ class IngestSettings(BaseSettings):
     # Public URL of the (multi-tenant) MCP server, shown in the Connect panel.
     mcp_public_url: str = "http://localhost:8765/mcp"
 
+    # -- Agent harness OAuth (RFC 8628 device flow) + pushed conversation logs --
+    # Harness CLIs are public OAuth clients; the security boundary is the human
+    # approval step in the dashboard, so a single static public client id is fine.
+    agent_oauth_client_id: str = "harnext-cli"
+    agent_access_token_ttl_seconds: int = 3600  # short-lived access token (1h)
+    agent_refresh_token_ttl_days: int = 90  # 0 = non-expiring refresh token
+    device_code_ttl_seconds: int = 600  # RFC 8628 expires_in for the device code
+    device_poll_interval_seconds: int = 5  # RFC 8628 interval (slow_down floor)
+    # Per-event payload cap for pushed conversation turns (like McpRequest sizing).
+    agent_event_max_bytes: int = 65536
+    # Max turns accepted in a single append batch (bounds one POST).
+    agent_event_max_batch: int = 200
+
     # Self-serve signup. Off by default: this deployment is invite-only, accounts
     # are created with the `harnext_ingest.admin` CLI on the server.
     registration_open: bool = False
