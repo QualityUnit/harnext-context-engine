@@ -1,9 +1,9 @@
 """Agent harness OAuth: access/refresh tokens + the device-authorization flow."""
 
-from meaninggrid_ingest.security import create_token, decode_token
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import (
+from harnext_ingest.security import create_token, decode_token
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import (
     create_agent_access_token,
     decode_agent_access_token,
     hash_refresh_token,

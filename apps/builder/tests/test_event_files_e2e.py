@@ -13,19 +13,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from meaninggrid_builder.agentfs.backend import get_backend
-from meaninggrid_builder.agentfs.store import OrgFsStore
-from meaninggrid_builder.build_runner import BuildRunner, BuildStatus
-from meaninggrid_builder.event_fs import EVENT_DIR
-from meaninggrid_builder.persistence import Persistence
-from meaninggrid_builder.settings import BuilderSettings
-from meaninggrid_builder.work_item import WorkItem
-from meaninggrid_shared import CloudEvent, ConversationLog, init_db, make_engine, make_sessionmaker
+from harnext_builder.agentfs.backend import get_backend
+from harnext_builder.agentfs.store import OrgFsStore
+from harnext_builder.build_runner import BuildRunner, BuildStatus
+from harnext_builder.event_fs import EVENT_DIR
+from harnext_builder.persistence import Persistence
+from harnext_builder.settings import BuilderSettings
+from harnext_builder.work_item import WorkItem
+from harnext_shared import CloudEvent, ConversationLog, init_db, make_engine, make_sessionmaker
 from sqlalchemy import select
 
 
 def _agentfs_available() -> bool:
-    from meaninggrid_builder.agentfs.agentfs_backend import resolve_agentfs_bin
+    from harnext_builder.agentfs.agentfs_backend import resolve_agentfs_bin
 
     b = resolve_agentfs_bin("agentfs")
     if not (shutil.which(b) or Path(b).exists()):

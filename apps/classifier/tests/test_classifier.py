@@ -2,12 +2,12 @@
 
 from datetime import UTC, datetime, timedelta
 
-from meaninggrid_classifier.anomaly import AnomalyScorer
-from meaninggrid_classifier.router import Router
-from meaninggrid_classifier.rules import rules_match
-from meaninggrid_classifier.settings import ClassifierSettings
-from meaninggrid_classifier.windows import WindowManager
-from meaninggrid_shared import CloudEvent, init_db, make_engine, make_sessionmaker
+from harnext_classifier.anomaly import AnomalyScorer
+from harnext_classifier.router import Router
+from harnext_classifier.rules import rules_match
+from harnext_classifier.settings import ClassifierSettings
+from harnext_classifier.windows import WindowManager
+from harnext_shared import CloudEvent, init_db, make_engine, make_sessionmaker
 
 _BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -103,11 +103,11 @@ async def test_router(tmp_path, monkeypatch):
         router = Router(scorer, settings)
         # a matched rule → fast. Rules are a no-op for now (dashboard-configurable
         # later), so patch one in to exercise the router's fast-via-rule path.
-        monkeypatch.setattr("meaninggrid_classifier.router.rules_match", lambda e: "rule:test")
+        monkeypatch.setattr("harnext_classifier.router.rules_match", lambda e: "rule:test")
         d1 = await router.decide(_ev("i", type="com.github.issue", data={"labels": ["security"]}))
         assert d1.lane == "fast" and d1.reason == "rule:test"
         # no rule + no baseline → batch
-        monkeypatch.setattr("meaninggrid_classifier.router.rules_match", lambda e: None)
+        monkeypatch.setattr("harnext_classifier.router.rules_match", lambda e: None)
         d2 = await router.decide(_ev("n", subject="repo:other", data={}))
         assert d2.lane == "batch"
     finally:

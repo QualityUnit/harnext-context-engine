@@ -1,9 +1,9 @@
 """Pushed agent conversations: open/append/finalize + tenant isolation."""
 
-from meaninggrid_ingest.main import _maybe_json
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_ingest.main import _maybe_json
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 
 class FakeProducer:

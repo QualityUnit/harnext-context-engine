@@ -1,12 +1,12 @@
 """Crawl https://www.liveagent.com/features/ + its feature subpages, extract the
-text, and emit one CloudEvent per page into MeaningGrid's raw topic.
+text, and emit one CloudEvent per page into Harnext's raw topic.
 
 The classifier routes them and the builder incorporates them into the target
 project's AgentFS — query the result over MCP.
 
     # create a project in the dashboard first, then:
-    uv run --package meaninggrid-ingest python scripts/scrape_liveagent.py <PROJECT_ID> --limit 30
-    uv run --package meaninggrid-ingest python scripts/scrape_liveagent.py <PROJECT_ID> --dry-run
+    uv run --package harnext-ingest python scripts/scrape_liveagent.py <PROJECT_ID> --limit 30
+    uv run --package harnext-ingest python scripts/scrape_liveagent.py <PROJECT_ID> --dry-run
 
 All pages share one entity (subject=product:liveagent) so they aggregate into a
 few batch windows rather than one build per page.
@@ -23,7 +23,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from aiokafka import AIOKafkaProducer
-from meaninggrid_shared import RAW_EVENTS_TOPIC, CloudEvent
+from harnext_shared import RAW_EVENTS_TOPIC, CloudEvent
 
 BASE = "https://www.liveagent.com"
 INDEX = f"{BASE}/features/"
@@ -114,7 +114,7 @@ async def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="extract + print, do not send")
     args = ap.parse_args()
 
-    headers = {"User-Agent": "meaninggrid-scraper/0.1 (+https://meaninggrid.local)"}
+    headers = {"User-Agent": "harnext-scraper/0.1 (+https://harnext.local)"}
     async with httpx.AsyncClient(
         timeout=30, headers=headers, follow_redirects=True
     ) as client:

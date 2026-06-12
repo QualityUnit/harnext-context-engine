@@ -1,5 +1,5 @@
 [project]
-name = "meaninggrid"
+name = "harnext-monorepo"
 version = "0.1.0"
 description = "Open-source streaming Context Engine for AI agents (AgentFS-backed CMS)."
 requires-python = ">=3.12"
@@ -9,32 +9,32 @@ members = ["apps/ingest", "apps/classifier", "apps/builder", "apps/mcp", "packag
 
 # The root env is the "everything" env used for tests + tooling: it pulls in
 # every workspace member plus the dev tools, so `uv run pytest/pyright` resolve
-# all the meaninggrid_* packages.
+# all the harnext_* packages.
 [dependency-groups]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
     "pyright>=1.1",
-    "meaninggrid-shared",
-    "meaninggrid-ingest",
-    "meaninggrid-classifier",
-    "meaninggrid-builder",
-    "meaninggrid-mcp",
+    "harnext-shared",
+    "harnext-ingest",
+    "harnext-classifier",
+    "harnext-builder",
+    "harnext-mcp",
 ]
 
 [tool.uv.sources]
-meaninggrid-shared = { workspace = true }
-meaninggrid-ingest = { workspace = true }
-meaninggrid-classifier = { workspace = true }
-meaninggrid-builder = { workspace = true }
-meaninggrid-mcp = { workspace = true }
+harnext-shared = { workspace = true }
+harnext-ingest = { workspace = true }
+harnext-classifier = { workspace = true }
+harnext-builder = { workspace = true }
+harnext-mcp = { workspace = true }
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 # Alembic-generated revision files — don't lint generated DDL.
-extend-exclude = ["packages/shared/src/meaninggrid_shared/migrations/versions"]
+extend-exclude = ["packages/shared/src/harnext_shared/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "W", "ASYNC"]

@@ -6,12 +6,12 @@ Exercises the FastAPI app directly (ASGI transport, no lifespan/Kafka) with the
 
 import httpx
 import pytest
+from harnext_ingest.main import app, service, settings
+from harnext_ingest.security import create_token
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import init_db, make_engine, make_sessionmaker
 from httpx import ASGITransport
-from meaninggrid_ingest.main import app, service, settings
-from meaninggrid_ingest.security import create_token
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
 
 _DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 

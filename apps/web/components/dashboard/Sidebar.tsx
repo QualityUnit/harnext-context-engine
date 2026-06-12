@@ -136,7 +136,7 @@ export function Sidebar({
         <span className="brand-mark">
           <span className="brand-grid" />
         </span>
-        <span className="brand-name">MeaningGrid</span>
+        <span className="brand-name">Harnext</span>
         <span className="brand-badge">OSS</span>
       </div>
 

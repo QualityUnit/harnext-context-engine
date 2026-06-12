@@ -81,7 +81,7 @@ function DeviceApproval() {
             <span className="brand-grid" />
           </span>
           <div className="fc-wordmark">
-            MeaningGrid<span className="fc-oss">OSS</span>
+            Harnext<span className="fc-oss">OSS</span>
           </div>
         </div>
 
@@ -103,7 +103,7 @@ function DeviceApproval() {
           <div className="success">
             <div className="succ-title">Sign in to approve</div>
             <div className="succ-sub">
-              Log in to your MeaningGrid account, then re-open the link shown in your terminal.
+              Log in to your Harnext account, then re-open the link shown in your terminal.
             </div>
             <a className="succ-btn" href="/login">
               Sign in

@@ -8,7 +8,7 @@ Reads credentials from the environment so nothing secret is passed on the CLI:
     export LIVEAGENT_DEPARTMENT="<department id>"   # from the listing below
     export LIVEAGENT_TAG="<tag id>"                 # optional
 
-    uv run --package meaninggrid-ingest python scripts/smoke_liveagent.py
+    uv run --package harnext-ingest python scripts/smoke_liveagent.py
 
 With no LIVEAGENT_DEPARTMENT set it just lists departments + tags so you can grab
 an id, then re-run with that id to walk a page of tickets and watch the cursor
@@ -21,7 +21,7 @@ import asyncio
 import os
 import sys
 
-from meaninggrid_ingest.connectors.liveagent import (
+from harnext_ingest.connectors.liveagent import (
     LiveAgentConnector,
     list_departments,
     list_tags,

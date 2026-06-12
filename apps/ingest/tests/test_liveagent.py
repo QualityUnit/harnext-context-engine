@@ -3,13 +3,13 @@ resume, message folding, error mapping, and the project-integration wiring."""
 
 import httpx
 import pytest
-from meaninggrid_ingest.connectors.liveagent import (
+from harnext_ingest.connectors.liveagent import (
     LiveAgentConnector,
     normalize_base_url,
 )
-from meaninggrid_ingest.service import SourceService
-from meaninggrid_ingest.settings import IngestSettings
-from meaninggrid_shared import init_db, make_engine, make_sessionmaker
+from harnext_ingest.service import SourceService
+from harnext_ingest.settings import IngestSettings
+from harnext_shared import init_db, make_engine, make_sessionmaker
 
 
 class FakeProducer:
@@ -105,7 +105,7 @@ def test_normalize_base_url():
 async def test_list_departments_and_tags(monkeypatch):
     """LiveAgent's Department keys its id as ``department_id`` (Tag uses ``id``).
     Reading ``id`` for departments dropped every row — the picker came up empty."""
-    from meaninggrid_ingest.connectors.liveagent import list_departments, list_tags
+    from harnext_ingest.connectors.liveagent import list_departments, list_tags
 
     async def fake_get(self, url, params=None, **kw):
         class R:

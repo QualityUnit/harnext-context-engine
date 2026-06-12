@@ -4,9 +4,9 @@ import os
 import subprocess
 import sys
 
-from meaninggrid_builder.harness.base import ConversationTranscript, HarnessRequest
-from meaninggrid_builder.harness.claude_code import ClaudeCodeHarness
-from meaninggrid_builder.harness.registry import get_harness
+from harnext_builder.harness.base import ConversationTranscript, HarnessRequest
+from harnext_builder.harness.claude_code import ClaudeCodeHarness
+from harnext_builder.harness.registry import get_harness
 
 
 async def test_fake_harness_makes_real_edits(tmp_path):
@@ -39,7 +39,7 @@ def test_runner_subprocess_computes_files_changed(tmp_path):
 
     env = {**os.environ, "REQUEST_PATH": str(req_path), "RESULT_PATH": str(res_path)}
     p = subprocess.run(
-        [sys.executable, "-m", "meaninggrid_builder.harness.runner"],
+        [sys.executable, "-m", "harnext_builder.harness.runner"],
         cwd=wd,
         env=env,
         capture_output=True,

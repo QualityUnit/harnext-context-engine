@@ -9,7 +9,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MeaningGrid",
+  title: "Harnext",
   description: "Context engine for agents. One context grid. Every harness.",
 };
 

@@ -7,7 +7,7 @@
 services:
   redpanda:
     image: redpandadata/redpanda:latest
-    container_name: meaninggrid-redpanda
+    container_name: harnext-redpanda
     command:
       - redpanda
       - start
@@ -35,7 +35,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: meaninggrid-redis
+    container_name: harnext-redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "6379:6379"   # Celery broker / result backend

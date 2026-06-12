@@ -1,6 +1,6 @@
 # infra
 
-Local-dev infrastructure for meaninggrid. One `docker-compose.yml` brings up the three services the architecture needs.
+Local-dev infrastructure for harnext. One `docker-compose.yml` brings up the three services the architecture needs.
 
 ## Services
 
@@ -31,5 +31,5 @@ All three services have healthchecks. `make up` returns immediately; use `make p
 
 ## Browser UIs
 
-- **MinIO console**: <http://localhost:9001> (login: `meaninggrid` / `meaninggrid_dev`).
+- **MinIO console**: <http://localhost:9001> (login: `harnext` / `harnext_dev`).
 - **FalkorDB Browser**: <http://localhost:3001> — useful for inspecting raw graph during dev. Note the dashboard at <http://localhost:3000> shows the *semantic* graph; Browser shows the *raw* graph DB.
