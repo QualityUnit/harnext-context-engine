@@ -170,6 +170,109 @@ class FsWriteOut(BaseModel):
     snapshot_id: str  # the edit snapshot created by this write
 
 
+# -- Agent harness OAuth (device flow) ------------------------------------
+
+
+class DeviceCodeOut(BaseModel):
+    """RFC 8628 device-authorization response."""
+
+    device_code: str
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str
+    expires_in: int
+    interval: int
+
+
+class TokenOut(BaseModel):
+    """RFC 6749 access-token response (device + refresh grants)."""
+
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int
+    refresh_token: str
+    scope: str = "agent"
+
+
+class DeviceLookupOut(BaseModel):
+    """What the dashboard approve page shows before the user picks a project."""
+
+    user_code: str
+    client_id: str
+    status: str
+    expires_at: datetime
+
+
+class DeviceApproveIn(BaseModel):
+    user_code: str
+    project_id: str
+
+
+class DeviceDenyIn(BaseModel):
+    user_code: str
+
+
+# -- Pushed agent conversations -------------------------------------------
+
+
+class AgentSessionOpenIn(BaseModel):
+    client_session_id: str
+    harness: str
+    model: str | None = None
+    cwd: str | None = None
+    title: str | None = None
+
+
+class AgentEventIn(BaseModel):
+    seq: int
+    type: str
+    payload: Any
+
+
+class AgentEventBatchIn(BaseModel):
+    events: list[AgentEventIn]
+
+
+class AgentEventBatchOut(BaseModel):
+    session_id: str
+    accepted: int
+    duplicates: int
+    max_seq: int | None
+
+
+class AgentSessionFinalizeIn(BaseModel):
+    stop_reason: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+class AgentSessionOut(BaseModel):
+    id: str
+    org_id: str
+    client_session_id: str
+    harness: str
+    model: str | None
+    cwd: str | None
+    title: str | None
+    status: str
+    stop_reason: str | None
+    usage: Any | None
+    event_count: int
+    started_at: datetime
+    ended_at: datetime | None
+
+
+class AgentEventOut(BaseModel):
+    seq: int
+    type: str
+    payload: Any
+    created_at: datetime
+
+
+class AgentSessionDetailOut(BaseModel):
+    session: AgentSessionOut
+    events: list[AgentEventOut]
+
+
 class RepoOut(BaseModel):
     full_name: str
 

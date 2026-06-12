@@ -105,6 +105,42 @@ export interface Health {
   ok: boolean;
   kinds: string[];
   oauth: { github: boolean; slack: boolean; discord: boolean; google: boolean };
+  agent_oauth: { device_flow: boolean; client_id: string };
+}
+
+export interface AgentSession {
+  id: string;
+  org_id: string;
+  client_session_id: string;
+  harness: string;
+  model: string | null;
+  cwd: string | null;
+  title: string | null;
+  status: string;
+  stop_reason: string | null;
+  usage: unknown | null;
+  event_count: number;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface AgentEvent {
+  seq: number;
+  type: string;
+  payload: unknown;
+  created_at: string;
+}
+
+export interface AgentSessionDetail {
+  session: AgentSession;
+  events: AgentEvent[];
+}
+
+export interface DeviceLookup {
+  user_code: string;
+  client_id: string;
+  status: string;
+  expires_at: string;
 }
 
 export interface FsList {
@@ -238,4 +274,18 @@ export const api = {
   listSources: (projectId: string) => req<Source[]>(`/sources?project_id=${projectId}`),
   syncSource: (id: string) => req<{ ingested: number }>(`/sources/${id}/sync`, { method: "POST" }),
   deleteSource: (id: string) => req<unknown>(`/sources/${id}`, { method: "DELETE" }),
+
+  // Pushed agent conversations (harness logs).
+  listAgentSessions: (projectId: string, limit = 100) =>
+    req<AgentSession[]>(`/projects/${projectId}/agent-sessions?limit=${limit}`),
+  getAgentSession: (projectId: string, sid: string) =>
+    req<AgentSessionDetail>(`/projects/${projectId}/agent-sessions/${sid}`),
+
+  // Harness OAuth (device flow) — the dashboard approval side.
+  deviceLookup: (userCode: string) =>
+    req<DeviceLookup>(`/oauth/device/lookup?user_code=${encodeURIComponent(userCode)}`),
+  approveDevice: (userCode: string, projectId: string) =>
+    req<{ status: string }>("/oauth/device/approve", json({ user_code: userCode, project_id: projectId })),
+  denyDevice: (userCode: string) =>
+    req<{ status: string }>("/oauth/device/deny", json({ user_code: userCode })),
 };

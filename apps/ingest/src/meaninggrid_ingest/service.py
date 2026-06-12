@@ -13,9 +13,13 @@ from typing import Protocol
 import httpx
 from meaninggrid_shared import (
     RAW_EVENTS_TOPIC,
+    AgentEvent,
+    AgentRefreshToken,
+    AgentSession,
     BuildLedger,
     CloudEvent,
     ConversationLog,
+    DeviceAuthRequest,
     EntityBaseline,
     FsSnapshot,
     IngestedEvent,
@@ -24,9 +28,15 @@ from meaninggrid_shared import (
     Source,
     SourcePollState,
     User,
+    create_agent_access_token,
+    hash_refresh_token,
+    new_device_code,
+    new_refresh_token,
+    new_user_code,
     utcnow,
 )
 from sqlalchemy import delete, desc, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meaninggrid_ingest import oauth
@@ -197,6 +207,9 @@ class SourceService:
                 ConversationLog,
                 EntityBaseline,
                 McpRequest,
+                AgentEvent,
+                AgentSession,
+                AgentRefreshToken,
             ):
                 await s.execute(delete(model).where(model.org_id == project_id))
             await s.delete(proj)
@@ -325,9 +338,7 @@ class SourceService:
                 proj.discord_guild_name = guild_name
                 await s.commit()
 
-    async def set_liveagent_integration(
-        self, project_id: str, base_url: str, api_key: str
-    ) -> None:
+    async def set_liveagent_integration(self, project_id: str, base_url: str, api_key: str) -> None:
         """Store a project's LiveAgent base URL + v3 API key (no OAuth). Sources
         snapshot these at create time (base URL → config, key → secret)."""
         async with self.sm() as s:
@@ -641,9 +652,7 @@ class SourceService:
             return 0
 
         async with self.sm() as s:
-            srcs = list(
-                (await s.execute(select(Source).where(Source.kind == "github"))).scalars()
-            )
+            srcs = list((await s.execute(select(Source).where(Source.kind == "github"))).scalars())
         matches = [src for src in srcs if json.loads(src.config_json).get("repo") == repo]
         if not matches:
             return 0
@@ -759,3 +768,375 @@ class SourceService:
             "by_tool": by_tool,
             "days": days,
         }
+
+    # -- agent OAuth: device flow -----------------------------------------
+    async def create_device_request(self, client_id: str) -> DeviceAuthRequest:
+        """Start a Device Authorization Grant: mint a device_code + user_code."""
+        now = utcnow()
+        req = DeviceAuthRequest(
+            id=uuid.uuid4().hex,
+            device_code=new_device_code(),
+            user_code=new_user_code(),
+            client_id=client_id,
+            scope="agent",
+            status="pending",
+            interval=self.s.device_poll_interval_seconds,
+            created_at=now,
+            expires_at=now + timedelta(seconds=self.s.device_code_ttl_seconds),
+        )
+        async with self.sm() as s:
+            s.add(req)
+            await s.commit()
+            await s.refresh(req)
+        return req
+
+    @staticmethod
+    def _aware(dt: datetime | None) -> datetime | None:
+        # SQLite reads DateTime back naive; re-attach UTC for comparisons.
+        if dt is not None and dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt
+
+    async def get_device_by_user_code(self, user_code: str) -> DeviceAuthRequest | None:
+        async with self.sm() as s:
+            return (
+                await s.execute(
+                    select(DeviceAuthRequest).where(DeviceAuthRequest.user_code == user_code)
+                )
+            ).scalar_one_or_none()
+
+    async def approve_device(self, user_code: str, org_id: str, user_id: str) -> str:
+        """Approve a pending device request, binding it to one project. Returns
+        ``"approved"`` on success, else a reason (``not_found``/``expired``/
+        ``already``)."""
+        async with self.sm() as s:
+            req = (
+                await s.execute(
+                    select(DeviceAuthRequest).where(DeviceAuthRequest.user_code == user_code)
+                )
+            ).scalar_one_or_none()
+            if req is None:
+                return "not_found"
+            if self._aware(req.expires_at) < utcnow():
+                return "expired"
+            if req.status != "pending":
+                return "already"
+            req.status = "approved"
+            req.org_id = org_id
+            req.user_id = user_id
+            await s.commit()
+            return "approved"
+
+    async def deny_device(self, user_code: str) -> str:
+        async with self.sm() as s:
+            req = (
+                await s.execute(
+                    select(DeviceAuthRequest).where(DeviceAuthRequest.user_code == user_code)
+                )
+            ).scalar_one_or_none()
+            if req is None:
+                return "not_found"
+            if req.status == "pending":
+                req.status = "denied"
+                await s.commit()
+            return "denied"
+
+    async def poll_device(self, device_code: str) -> tuple[str, tuple[str, str] | None]:
+        """Poll a device request. Returns ``(outcome, tokens)`` where ``outcome`` is
+        one of ``authorization_pending``/``slow_down``/``access_denied``/
+        ``expired_token``/``approved`` (RFC 8628 token-endpoint errors), and
+        ``tokens`` is ``(access_token, refresh_plaintext)`` only when approved."""
+        now = utcnow()
+        async with self.sm() as s:
+            req = (
+                await s.execute(
+                    select(DeviceAuthRequest).where(DeviceAuthRequest.device_code == device_code)
+                )
+            ).scalar_one_or_none()
+            if req is None or self._aware(req.expires_at) < now:
+                return "expired_token", None
+            if req.status == "denied":
+                return "access_denied", None
+            if req.status == "pending":
+                last = self._aware(req.last_polled_at)
+                too_fast = last is not None and (now - last).total_seconds() < req.interval
+                req.last_polled_at = now
+                await s.commit()
+                return ("slow_down" if too_fast else "authorization_pending"), None
+            # approved → issue tokens once, then consume the request.
+            org_id, user_id, client_id = req.org_id, req.user_id, req.client_id
+            await s.delete(req)
+            await s.commit()
+        tokens = await self.issue_tokens(org_id, user_id, client_id)
+        return "approved", tokens
+
+    # -- agent OAuth: token issuance + rotation ---------------------------
+    async def issue_tokens(self, org_id: str, user_id: str, client_id: str) -> tuple[str, str]:
+        """Mint an access token (JWT) + persist a hashed refresh token. Returns
+        ``(access_token, refresh_plaintext)`` — the refresh plaintext is shown once."""
+        access = create_agent_access_token(
+            org_id, user_id, self.s.jwt_secret, self.s.agent_access_token_ttl_seconds
+        )
+        refresh_plain, refresh_hash = new_refresh_token()
+        now = utcnow()
+        expires_at = (
+            now + timedelta(days=self.s.agent_refresh_token_ttl_days)
+            if self.s.agent_refresh_token_ttl_days
+            else None
+        )
+        async with self.sm() as s:
+            s.add(
+                AgentRefreshToken(
+                    id=uuid.uuid4().hex,
+                    token_hash=refresh_hash,
+                    org_id=org_id,
+                    user_id=user_id,
+                    client_id=client_id,
+                    created_at=now,
+                    expires_at=expires_at,
+                )
+            )
+            await s.commit()
+        return access, refresh_plain
+
+    async def rotate_refresh(self, refresh_plain: str, client_id: str) -> tuple[str, str] | None:
+        """Exchange a refresh token for a fresh access+refresh pair, revoking the
+        old one. Returns ``None`` on any failure (unknown/expired/wrong client).
+
+        Reuse detection: presenting an already-revoked token is treated as theft —
+        the whole rotation chain descending from it is revoked and ``None`` is
+        returned, so a leaked token can't outlive its detection."""
+        token_hash = hash_refresh_token(refresh_plain)
+        now = utcnow()
+        async with self.sm() as s:
+            row = (
+                await s.execute(
+                    select(AgentRefreshToken).where(AgentRefreshToken.token_hash == token_hash)
+                )
+            ).scalar_one_or_none()
+            if row is None or row.client_id != client_id:
+                return None
+            if row.revoked_at is not None:
+                await self._revoke_chain(s, row)  # reuse → burn the chain
+                await s.commit()
+                return None
+            if row.expires_at is not None and self._aware(row.expires_at) < now:
+                return None
+            org_id, user_id = row.org_id, row.user_id
+            new_plain, new_hash = new_refresh_token()
+            new_id = uuid.uuid4().hex
+            expires_at = (
+                now + timedelta(days=self.s.agent_refresh_token_ttl_days)
+                if self.s.agent_refresh_token_ttl_days
+                else None
+            )
+            row.revoked_at = now
+            row.replaced_by = new_id
+            s.add(
+                AgentRefreshToken(
+                    id=new_id,
+                    token_hash=new_hash,
+                    org_id=org_id,
+                    user_id=user_id,
+                    client_id=client_id,
+                    created_at=now,
+                    expires_at=expires_at,
+                )
+            )
+            await s.commit()
+        access = create_agent_access_token(
+            org_id, user_id, self.s.jwt_secret, self.s.agent_access_token_ttl_seconds
+        )
+        return access, new_plain
+
+    async def _revoke_chain(self, s: AsyncSession, start: AgentRefreshToken) -> None:
+        """Revoke every still-live successor of ``start`` along its ``replaced_by``
+        chain (reuse-detection blast radius)."""
+        now = utcnow()
+        cursor: AgentRefreshToken | None = start
+        seen: set[str] = set()
+        while cursor is not None and cursor.id not in seen:
+            seen.add(cursor.id)
+            nxt_id = cursor.replaced_by
+            if nxt_id is None:
+                break
+            nxt = await s.get(AgentRefreshToken, nxt_id)
+            if nxt is not None and nxt.revoked_at is None:
+                nxt.revoked_at = now
+            cursor = nxt
+
+    # -- pushed agent conversations ---------------------------------------
+    async def open_agent_session(
+        self,
+        org_id: str,
+        client_session_id: str,
+        harness: str,
+        model: str | None,
+        cwd: str | None,
+        title: str | None,
+    ) -> AgentSession:
+        """Open (or return the existing) conversation. Idempotent on
+        ``(org_id, client_session_id)`` so a retried open never duplicates."""
+        async with self.sm() as s:
+            existing = (
+                await s.execute(
+                    select(AgentSession).where(
+                        AgentSession.org_id == org_id,
+                        AgentSession.client_session_id == client_session_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+            sess = AgentSession(
+                id=uuid.uuid4().hex,
+                org_id=org_id,
+                client_session_id=client_session_id,
+                harness=harness,
+                model=model,
+                cwd=cwd,
+                title=(title or None) and title[:500],
+                status="open",
+            )
+            s.add(sess)
+            try:
+                await s.commit()
+            except IntegrityError:  # concurrent open won the race — return theirs
+                await s.rollback()
+                return (
+                    await s.execute(
+                        select(AgentSession).where(
+                            AgentSession.org_id == org_id,
+                            AgentSession.client_session_id == client_session_id,
+                        )
+                    )
+                ).scalar_one()
+            await s.refresh(sess)
+            return sess
+
+    async def get_agent_session(self, session_id: str) -> AgentSession | None:
+        async with self.sm() as s:
+            return await s.get(AgentSession, session_id)
+
+    async def append_agent_events(self, session_id: str, org_id: str, events: list[dict]) -> dict:
+        """Append a batch of turns, idempotent per ``(session_id, seq)``. Each
+        ``event`` is ``{"seq", "type", "payload"}``. Oversize payloads are stored
+        truncated (the reader tolerates non-JSON). Returns counts."""
+        cap = self.s.agent_event_max_bytes
+        accepted = 0
+        async with self.sm() as s:
+            seqs = [int(e["seq"]) for e in events]
+            existing = set(
+                (
+                    await s.execute(
+                        select(AgentEvent.seq).where(
+                            AgentEvent.session_id == session_id, AgentEvent.seq.in_(seqs)
+                        )
+                    )
+                ).scalars()
+            )
+            now = utcnow()
+            for e in events:
+                seq = int(e["seq"])
+                if seq in existing:
+                    continue
+                payload = json.dumps(e.get("payload"))
+                if len(payload) > cap:
+                    payload = payload[:cap]
+                s.add(
+                    AgentEvent(
+                        id=uuid.uuid4().hex,
+                        session_id=session_id,
+                        org_id=org_id,
+                        seq=seq,
+                        type=str(e.get("type", ""))[:32],
+                        payload_json=payload,
+                        created_at=now,
+                    )
+                )
+                existing.add(seq)
+                accepted += 1
+            sess = await s.get(AgentSession, session_id)
+            if sess is not None:
+                sess.event_count = (sess.event_count or 0) + accepted
+            try:
+                await s.commit()
+            except IntegrityError:  # racing append inserted the same seq — recount
+                await s.rollback()
+                return await self._recount_append(session_id, org_id, events)
+            max_seq = max(seqs) if seqs else None
+        return {"accepted": accepted, "duplicates": len(events) - accepted, "max_seq": max_seq}
+
+    async def _recount_append(self, session_id: str, org_id: str, events: list[dict]) -> dict:
+        """Fallback after a unique-constraint race: insert each remaining row on
+        its own so one duplicate doesn't roll back the whole batch."""
+        cap = self.s.agent_event_max_bytes
+        accepted = 0
+        seqs = [int(e["seq"]) for e in events]
+        for e in events:
+            seq = int(e["seq"])
+            payload = json.dumps(e.get("payload"))
+            if len(payload) > cap:
+                payload = payload[:cap]
+            async with self.sm() as s:
+                s.add(
+                    AgentEvent(
+                        id=uuid.uuid4().hex,
+                        session_id=session_id,
+                        org_id=org_id,
+                        seq=seq,
+                        type=str(e.get("type", ""))[:32],
+                        payload_json=payload,
+                        created_at=utcnow(),
+                    )
+                )
+                try:
+                    await s.commit()
+                    accepted += 1
+                except IntegrityError:
+                    await s.rollback()
+        if accepted:
+            async with self.sm() as s:
+                sess = await s.get(AgentSession, session_id)
+                if sess is not None:
+                    sess.event_count = (sess.event_count or 0) + accepted
+                    await s.commit()
+        return {
+            "accepted": accepted,
+            "duplicates": len(events) - accepted,
+            "max_seq": max(seqs) if seqs else None,
+        }
+
+    async def finalize_agent_session(
+        self, session_id: str, stop_reason: str | None, usage: dict | None
+    ) -> AgentSession | None:
+        async with self.sm() as s:
+            sess = await s.get(AgentSession, session_id)
+            if sess is None:
+                return None
+            sess.status = "closed"
+            sess.stop_reason = stop_reason
+            sess.usage_json = json.dumps(usage) if usage is not None else sess.usage_json
+            sess.ended_at = utcnow()
+            await s.commit()
+            await s.refresh(sess)
+            return sess
+
+    async def list_agent_sessions(self, project_id: str, limit: int = 50) -> list[AgentSession]:
+        async with self.sm() as s:
+            q = (
+                select(AgentSession)
+                .where(AgentSession.org_id == project_id)
+                .order_by(desc(AgentSession.started_at))
+                .limit(limit)
+            )
+            return list((await s.execute(q)).scalars())
+
+    async def get_agent_session_events(self, session_id: str) -> list[AgentEvent]:
+        async with self.sm() as s:
+            q = (
+                select(AgentEvent)
+                .where(AgentEvent.session_id == session_id)
+                .order_by(AgentEvent.seq)
+            )
+            return list((await s.execute(q)).scalars())

@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from meaninggrid_builder.agentfs.backend import get_backend
 from meaninggrid_builder.agentfs.store import OrgFsStore
 from meaninggrid_builder.settings import BuilderSettings
 from meaninggrid_shared import (
+    AgentEvent,
+    AgentSession,
     BuildLedger,
     IngestedEvent,
     McpRequest,
@@ -21,6 +24,7 @@ from meaninggrid_shared import (
     Source,
     User,
     create_mcp_token,
+    decode_agent_access_token,
     init_db,
     make_engine,
     make_sessionmaker,
@@ -30,11 +34,22 @@ from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent, stripe
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.schemas import (
+    AgentEventBatchIn,
+    AgentEventBatchOut,
+    AgentEventOut,
+    AgentSessionDetailOut,
+    AgentSessionFinalizeIn,
+    AgentSessionOpenIn,
+    AgentSessionOut,
     AnalyticsOut,
     AuthOut,
     BuildOut,
     ChannelOut,
     DepartmentOut,
+    DeviceApproveIn,
+    DeviceCodeOut,
+    DeviceDenyIn,
+    DeviceLookupOut,
     EventOut,
     FsFileOut,
     FsListOut,
@@ -55,6 +70,7 @@ from meaninggrid_ingest.schemas import (
     StripeConnectIn,
     SyncOut,
     TagOut,
+    TokenOut,
     UserOut,
 )
 from meaninggrid_ingest.security import create_token, decode_token
@@ -127,6 +143,33 @@ async def current_user(
 UserDep = Annotated[User, Depends(current_user)]
 
 
+@dataclass
+class AgentPrincipal:
+    """The tenant a harness access token is scoped to (parallel to ``current_user``)."""
+
+    org_id: str
+    user_id: str
+
+
+async def current_agent(
+    svc: SvcDep, cfg: CfgDep, authorization: Annotated[str | None, Header()] = None
+) -> AgentPrincipal:
+    """Resolve the project (org) a pushed-conversation request is scoped to from a
+    harness access token. The granted org is carried in the JWT claim; we confirm
+    the project still exists so a deleted project's token stops working."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+    claims = decode_agent_access_token(authorization[7:], cfg.jwt_secret)
+    if not claims:
+        raise HTTPException(401, "invalid or expired token")
+    if await svc.get_project(claims["org"]) is None:
+        raise HTTPException(401, "project not found")
+    return AgentPrincipal(org_id=claims["org"], user_id=claims["sub"])
+
+
+AgentDep = Annotated[AgentPrincipal, Depends(current_agent)]
+
+
 def _user_out(u: User) -> UserOut:
     return UserOut(
         id=u.id, email=u.email, name=u.name, avatar_url=u.avatar_url, created_at=u.created_at
@@ -192,6 +235,30 @@ def _mcp_request_out(r: McpRequest) -> McpRequestOut:
     )
 
 
+def _agent_session_out(s: AgentSession) -> AgentSessionOut:
+    return AgentSessionOut(
+        id=s.id,
+        org_id=s.org_id,
+        client_session_id=s.client_session_id,
+        harness=s.harness,
+        model=s.model,
+        cwd=s.cwd,
+        title=s.title,
+        status=s.status,
+        stop_reason=s.stop_reason,
+        usage=_maybe_json(s.usage_json),
+        event_count=s.event_count,
+        started_at=s.started_at,
+        ended_at=s.ended_at,
+    )
+
+
+def _agent_event_out(e: AgentEvent) -> AgentEventOut:
+    return AgentEventOut(
+        seq=e.seq, type=e.type, payload=_maybe_json(e.payload_json), created_at=e.created_at
+    )
+
+
 async def _owned_project(svc: SourceService, user: User, project_id: str) -> Project:
     p = await svc.get_project(project_id)
     if p is None:
@@ -234,6 +301,9 @@ async def health(cfg: CfgDep) -> dict:
             "discord": bool(cfg.discord_oauth_client_id),
             "google": bool(cfg.google_oauth_client_id),
         },
+        # The harness device-flow surface is always available (no external app to
+        # register); a CLI can probe this to discover the client id to use.
+        "agent_oauth": {"device_flow": True, "client_id": cfg.agent_oauth_client_id},
     }
 
 
@@ -439,6 +509,190 @@ async def delete_project(project_id: str, svc: SvcDep, user: UserDep) -> dict:
     await _owned_project(svc, user, project_id)
     await svc.delete_project(project_id)
     return {"deleted": project_id}
+
+
+# -- agent harness OAuth (RFC 8628 device flow) ----------------------------
+# A CLI harness obtains an access+refresh token to push its conversation logs.
+# The CLI is a public client; the security boundary is the human approval step
+# in the dashboard. Token-endpoint responses use OAuth-standard error bodies +
+# HTTP 400 so any stock OAuth client works.
+_DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+def _oauth_error(error: str, status: int = 400) -> JSONResponse:
+    return JSONResponse({"error": error}, status_code=status)
+
+
+@app.post("/oauth/device/code", response_model=DeviceCodeOut)
+async def device_code(
+    svc: SvcDep,
+    cfg: CfgDep,
+    client_id: Annotated[str, Form()],
+) -> DeviceCodeOut | JSONResponse:
+    if client_id != cfg.agent_oauth_client_id:
+        return _oauth_error("invalid_client", 401)
+    req = await svc.create_device_request(client_id)
+    base = f"{cfg.web_origin}/device"
+    return DeviceCodeOut(
+        device_code=req.device_code,
+        user_code=req.user_code,
+        verification_uri=base,
+        verification_uri_complete=f"{base}?code={req.user_code}",
+        expires_in=cfg.device_code_ttl_seconds,
+        interval=req.interval,
+    )
+
+
+@app.post("/oauth/token", response_model=TokenOut)
+async def oauth_token(
+    svc: SvcDep,
+    cfg: CfgDep,
+    grant_type: Annotated[str, Form()],
+    client_id: Annotated[str, Form()],
+    device_code: Annotated[str | None, Form()] = None,
+    refresh_token: Annotated[str | None, Form()] = None,
+) -> TokenOut | JSONResponse:
+    if client_id != cfg.agent_oauth_client_id:
+        return _oauth_error("invalid_client", 401)
+
+    if grant_type == _DEVICE_GRANT:
+        if not device_code:
+            return _oauth_error("invalid_request")
+        outcome, tokens = await svc.poll_device(device_code)
+        if outcome != "approved" or tokens is None:
+            return _oauth_error(outcome)  # authorization_pending / slow_down / …
+        access, refresh = tokens
+        return TokenOut(
+            access_token=access,
+            expires_in=cfg.agent_access_token_ttl_seconds,
+            refresh_token=refresh,
+        )
+
+    if grant_type == "refresh_token":
+        if not refresh_token:
+            return _oauth_error("invalid_request")
+        rotated = await svc.rotate_refresh(refresh_token, client_id)
+        if rotated is None:
+            return _oauth_error("invalid_grant")
+        access, refresh = rotated
+        return TokenOut(
+            access_token=access,
+            expires_in=cfg.agent_access_token_ttl_seconds,
+            refresh_token=refresh,
+        )
+
+    return _oauth_error("unsupported_grant_type")
+
+
+@app.get("/oauth/device/lookup", response_model=DeviceLookupOut)
+async def device_lookup(
+    user: UserDep, svc: SvcDep, user_code: Annotated[str, Query()]
+) -> DeviceLookupOut:
+    """Dashboard: resolve a user_code so the approve page can show the requesting
+    client before the user picks a project."""
+    req = await svc.get_device_by_user_code(user_code)
+    if req is None:
+        raise HTTPException(404, "unknown code")
+    return DeviceLookupOut(
+        user_code=req.user_code,
+        client_id=req.client_id,
+        status=req.status,
+        expires_at=req.expires_at,
+    )
+
+
+@app.post("/oauth/device/approve")
+async def device_approve(body: DeviceApproveIn, user: UserDep, svc: SvcDep) -> dict:
+    """Dashboard: bind a pending device request to one of the user's projects."""
+    await _owned_project(svc, user, body.project_id)
+    outcome = await svc.approve_device(body.user_code, body.project_id, user.id)
+    if outcome == "not_found":
+        raise HTTPException(404, "unknown code")
+    if outcome == "expired":
+        raise HTTPException(410, "code expired")
+    if outcome == "already":
+        raise HTTPException(409, "code already resolved")
+    return {"status": "approved"}
+
+
+@app.post("/oauth/device/deny")
+async def device_deny(body: DeviceDenyIn, user: UserDep, svc: SvcDep) -> dict:
+    outcome = await svc.deny_device(body.user_code)
+    if outcome == "not_found":
+        raise HTTPException(404, "unknown code")
+    return {"status": "denied"}
+
+
+# -- pushed agent conversations (store-only) -------------------------------
+# Authed by the harness access token (current_agent → the granted project).
+async def _agent_owned_session(svc: SourceService, principal: AgentPrincipal, session_id: str):
+    sess = await svc.get_agent_session(session_id)
+    if sess is None or sess.org_id != principal.org_id:
+        raise HTTPException(404, "session not found")
+    return sess
+
+
+@app.post("/agent/sessions", response_model=AgentSessionOut)
+async def open_agent_session(
+    body: AgentSessionOpenIn, svc: SvcDep, principal: AgentDep
+) -> AgentSessionOut:
+    sess = await svc.open_agent_session(
+        principal.org_id, body.client_session_id, body.harness, body.model, body.cwd, body.title
+    )
+    return _agent_session_out(sess)
+
+
+@app.post("/agent/sessions/{session_id}/events", response_model=AgentEventBatchOut)
+async def append_agent_events(
+    session_id: str, body: AgentEventBatchIn, svc: SvcDep, cfg: CfgDep, principal: AgentDep
+) -> AgentEventBatchOut:
+    sess = await _agent_owned_session(svc, principal, session_id)
+    if sess.status == "closed":
+        raise HTTPException(409, "session is finalized")
+    if len(body.events) > cfg.agent_event_max_batch:
+        raise HTTPException(413, f"batch too large (max {cfg.agent_event_max_batch})")
+    result = await svc.append_agent_events(
+        session_id, principal.org_id, [e.model_dump() for e in body.events]
+    )
+    return AgentEventBatchOut(session_id=session_id, **result)
+
+
+@app.post("/agent/sessions/{session_id}/finalize", response_model=AgentSessionOut)
+async def finalize_agent_session(
+    session_id: str, body: AgentSessionFinalizeIn, svc: SvcDep, principal: AgentDep
+) -> AgentSessionOut:
+    await _agent_owned_session(svc, principal, session_id)
+    sess = await svc.finalize_agent_session(session_id, body.stop_reason, body.usage)
+    if sess is None:
+        raise HTTPException(404, "session not found")
+    return _agent_session_out(sess)
+
+
+@app.get("/projects/{project_id}/agent-sessions", response_model=list[AgentSessionOut])
+async def list_agent_sessions(
+    project_id: str,
+    svc: SvcDep,
+    user: UserDep,
+    limit: Annotated[int, Query(le=500)] = 50,
+) -> list[AgentSessionOut]:
+    """Dashboard: recent pushed conversations for this project, newest first."""
+    await _owned_project(svc, user, project_id)
+    return [_agent_session_out(s) for s in await svc.list_agent_sessions(project_id, limit)]
+
+
+@app.get("/projects/{project_id}/agent-sessions/{session_id}", response_model=AgentSessionDetailOut)
+async def get_agent_session(
+    project_id: str, session_id: str, svc: SvcDep, user: UserDep
+) -> AgentSessionDetailOut:
+    """Dashboard: one conversation with its ordered turns."""
+    await _owned_project(svc, user, project_id)
+    sess = await svc.get_agent_session(session_id)
+    if sess is None or sess.org_id != project_id:
+        raise HTTPException(404, "session not found")
+    events = await svc.get_agent_session_events(session_id)
+    return AgentSessionDetailOut(
+        session=_agent_session_out(sess), events=[_agent_event_out(e) for e in events]
+    )
 
 
 # -- integration OAuth (GitHub/Slack) — browser redirects, state/uuid-protected

@@ -8,6 +8,8 @@ One SQLite file (WAL) is shared by all apps as the OLTP/metadata store:
     - raw-conversation log   (ConversationLog)    — written by apps/builder, read by apps/mcp
     - FS snapshot index      (FsSnapshot)         — written by apps/builder, read by apps/mcp
     - MCP request/response   (McpRequest)         — written by apps/mcp, read by apps/ingest
+    - harness OAuth + logs   (DeviceAuthRequest, AgentRefreshToken, AgentSession,
+                              AgentEvent)          — written/read by apps/ingest
 
 The per-org *context* itself does NOT live here — it lives in each org's
 AgentFS store (see apps/builder/agentfs). This DB only holds metadata and the
@@ -294,6 +296,122 @@ class McpRequest(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# --------------------------------------------------------------------------
+# Agent harness OAuth (device flow) + pushed conversation logs
+# --------------------------------------------------------------------------
+
+
+class DeviceAuthRequest(Base):
+    """One OAuth 2.0 Device Authorization Grant (RFC 8628) in flight.
+
+    A CLI harness asks for a ``device_code`` + short ``user_code``; the user
+    approves it in the dashboard (binding it to one Project == ``org_id``); the
+    CLI polls ``/oauth/token`` until ``status`` flips to ``approved`` and then
+    exchanges the ``device_code`` for an access + refresh token.
+
+    Codes are stored in plaintext: they are short-lived (``expires_at``), single
+    -use, and the security boundary is the human approval step — consistent with
+    the v1 plaintext-secret posture elsewhere. State lives in the DB (not in
+    process memory) so polling and approval can land on different workers.
+    """
+
+    __tablename__ = "device_auth_requests"
+    __table_args__ = (
+        Index("ix_device_auth_device_code", "device_code", unique=True),
+        Index("ix_device_auth_user_code", "user_code", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    device_code: Mapped[str] = mapped_column(String(64))  # opaque poll key
+    user_code: Mapped[str] = mapped_column(String(16))  # short human code (XXXX-XXXX)
+    client_id: Mapped[str] = mapped_column(String(64))
+    scope: Mapped[str] = mapped_column(String(64), default="agent")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|denied
+    org_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # set on approval
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # the approver
+    interval: Mapped[int] = mapped_column(Integer, default=5)  # min poll gap (seconds)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AgentRefreshToken(Base):
+    """A long-lived, rotated refresh token issued to a harness client.
+
+    Only the SHA-256 hash of the opaque token is stored (the token is high
+    entropy, so a fast hash with exact-match lookup is correct). Rotation marks
+    the old row ``revoked_at`` + ``replaced_by``; presenting an already-revoked
+    token is treated as theft and revokes the whole chain (reuse detection)."""
+
+    __tablename__ = "agent_refresh_tokens"
+    __table_args__ = (
+        Index("ix_agent_refresh_token_hash", "token_hash", unique=True),
+        Index("ix_agent_refresh_org", "org_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    token_hash: Mapped[str] = mapped_column(String(64))  # sha256 hex
+    org_id: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[str] = mapped_column(String(64))  # the approver (audit / display)
+    client_id: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by: Mapped[str | None] = mapped_column(String(64), nullable=True)  # rotation chain
+
+
+class AgentSession(Base):
+    """One conversation a harness pushed to the engine — the header row.
+
+    Mirrors :class:`ConversationLog`'s spirit (harness/model/usage/stop_reason)
+    but is built up incrementally: the client opens it, appends event batches as
+    turns complete (see :class:`AgentEvent`), then finalizes it. ``open`` is
+    idempotent on ``(org_id, client_session_id)`` so a retried open returns the
+    same row rather than duplicating the conversation."""
+
+    __tablename__ = "agent_sessions"
+    __table_args__ = (
+        Index("ix_agent_sessions_org_time", "org_id", "started_at"),
+        Index("ix_agent_sessions_client_session", "org_id", "client_session_id", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # server uuid4 hex
+    org_id: Mapped[str] = mapped_column(String(64))
+    client_session_id: Mapped[str] = mapped_column(String(128))  # client-supplied idempotency key
+    harness: Mapped[str] = mapped_column(String(32))  # harnext | …
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    cwd: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)  # clipped first prompt
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | closed
+    stop_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    usage_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    event_count: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentEvent(Base):
+    """One append-only turn in an :class:`AgentSession` — a raw stream-json
+    envelope (system/init, assistant, user/tool_result, result) as harnext emits.
+
+    ``seq`` is a client-assigned monotonic ordinal; the unique ``(session_id,
+    seq)`` index gives both ordering and idempotency (re-sending a batch is a
+    no-op). ``org_id`` is denormalized so the row is tenant-scoped for cleanup
+    and direct queries. ``payload_json`` is size-capped at write time."""
+
+    __tablename__ = "agent_events"
+    __table_args__ = (Index("ix_agent_events_session_seq", "session_id", "seq", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    session_id: Mapped[str] = mapped_column(String(64))  # → agent_sessions.id
+    org_id: Mapped[str] = mapped_column(String(64))  # denormalized for tenant cleanup
+    seq: Mapped[int] = mapped_column(Integer)  # client monotonic ordinal
+    type: Mapped[str] = mapped_column(String(32))  # system | assistant | user | result
+    payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

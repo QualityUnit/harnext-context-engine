@@ -56,7 +56,14 @@ def create_token(user_id: str, secret: str, expiry_hours: int) -> str:
 
 
 def decode_token(token: str, secret: str) -> str | None:
+    """Return the user id of a *session* token. Scoped tokens (the ``mcp`` /
+    ``agent`` bearer tokens, which carry a ``scope`` claim) are rejected here so
+    one can never be replayed as a full user session — even though they share the
+    signing secret."""
     try:
-        return jwt.decode(token, secret, algorithms=[_ALGO]).get("sub")
+        claims = jwt.decode(token, secret, algorithms=[_ALGO])
     except jwt.PyJWTError:
         return None
+    if claims.get("scope"):
+        return None
+    return claims.get("sub")
