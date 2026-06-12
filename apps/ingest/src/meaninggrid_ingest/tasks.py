@@ -13,14 +13,30 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from celery import Task
 from meaninggrid_shared import CloudEvent, make_engine, make_sessionmaker
 
 from meaninggrid_ingest.celery_app import app
+from meaninggrid_ingest.connectors.base import RateLimitedError
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.service import SourceService
 from meaninggrid_ingest.settings import IngestSettings
 
 log = logging.getLogger("ingest.tasks")
+
+# How many times a rate-limited poll re-queues itself before giving up (beat will
+# still re-poll the source next interval). Honouring the API's reset time, the
+# limit usually clears in one retry.
+_POLL_MAX_RETRIES = 5
+
+
+def _poll_backoff_seconds(retries: int, exc: RateLimitedError) -> float:
+    """When to retry a rate-limited poll: honour the API's own reset time if it
+    gave one (+1s slack to land past the window), else exponential backoff
+    (60s, 120s, … capped at 1h). Mirrors the crawler's ``_backoff_seconds``."""
+    if exc.retry_after is not None:
+        return exc.retry_after + 1.0
+    return float(min(3600, 60 * 2**retries))
 
 
 class _NoProducer:
@@ -50,9 +66,30 @@ async def _dispatch_due_polls() -> dict:
     return {"dispatched": len(due)}
 
 
-@app.task(name="meaninggrid_ingest.tasks.poll_source")
-def poll_source(source_id: str) -> dict:
-    return {"source_id": source_id, "ingested": asyncio.run(_poll_source(source_id))}
+@app.task(
+    bind=True,
+    name="meaninggrid_ingest.tasks.poll_source",
+    max_retries=_POLL_MAX_RETRIES,
+    acks_late=True,
+)
+def poll_source(self: Task, source_id: str) -> dict:
+    """Poll one source. On a provider rate limit, re-queue the task at the API's
+    reset time (``RateLimitedError.retry_after``) instead of failing — exponential
+    backoff when the API gives no hint."""
+    try:
+        ingested = asyncio.run(_poll_source(source_id))
+    except RateLimitedError as e:
+        countdown = _poll_backoff_seconds(self.request.retries, e)
+        log.warning(
+            "poll_source %s rate-limited (%s); retry %d/%d in %.0fs",
+            source_id,
+            e,
+            self.request.retries + 1,
+            _POLL_MAX_RETRIES,
+            countdown,
+        )
+        raise self.retry(exc=e, countdown=countdown) from e
+    return {"source_id": source_id, "ingested": ingested}
 
 
 async def _poll_source(source_id: str) -> int:

@@ -25,7 +25,13 @@ from typing import Any
 import httpx
 from meaninggrid_shared import CloudEvent
 
-from meaninggrid_ingest.connectors.base import Connector, FetchResult, PollingConnector
+from meaninggrid_ingest.connectors.base import (
+    Connector,
+    FetchResult,
+    PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
+)
 
 _API_BASE = "https://api.stripe.com"
 # Stripe's max page size. A busy account's backlog is walked across many polls
@@ -152,12 +158,10 @@ class StripeConnector(PollingConnector):
             raise RuntimeError("Stripe rejected the API key — it's invalid or revoked")
         if r.status_code == 403:
             raise RuntimeError(
-                "Stripe denied access (403) — the restricted key lacks the 'Events' "
-                "read permission"
+                "Stripe denied access (403) — the restricted key lacks the 'Events' read permission"
             )
         if r.status_code == 429:
-            retry = r.headers.get("Retry-After", "?")
-            raise RuntimeError(f"Stripe rate limit exceeded — retry after {retry}s")
+            raise RateLimitedError("Stripe", parse_retry_after(r.headers))
         r.raise_for_status()
 
 

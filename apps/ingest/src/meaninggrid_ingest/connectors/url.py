@@ -21,7 +21,12 @@ from urllib.parse import urlparse
 import httpx
 from meaninggrid_shared import CloudEvent, utcnow
 
-from meaninggrid_ingest.connectors.base import FetchResult, PollingConnector
+from meaninggrid_ingest.connectors.base import (
+    FetchResult,
+    PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
+)
 from meaninggrid_ingest.connectors.sitemap import (
     DEFAULT_MAX_BYTES,
     DEFAULT_TIMEOUT,
@@ -122,6 +127,8 @@ class UrlConnector(PollingConnector):
                 r = await client.get(url)
             except httpx.HTTPError as e:
                 raise RuntimeError(f"could not fetch {url}: {e}") from e
+        if r.status_code == 429:  # origin asked us to slow down
+            raise RateLimitedError("URL", parse_retry_after(r.headers))
         if r.status_code != 200:
             raise RuntimeError(f"fetch failed (HTTP {r.status_code}) for {url}")
         ctype = r.headers.get("content-type", "")

@@ -22,6 +22,8 @@ from meaninggrid_ingest.connectors.base import (
     EventConnector,
     FetchResult,
     PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
 )
 from meaninggrid_ingest.security import verify_slack_signature
 
@@ -69,6 +71,8 @@ class SlackConnector(EventConnector, PollingConnector):
                 params=params,
                 headers={"Authorization": f"Bearer {secret}"},
             )
+            if r.status_code == 429:  # Slack throttles with a Retry-After header
+                raise RateLimitedError("Slack", parse_retry_after(r.headers))
             r.raise_for_status()
             body = r.json()
         if not body.get("ok"):
@@ -94,9 +98,7 @@ class SlackConnector(EventConnector, PollingConnector):
             body.decode("utf-8", "replace"),
         )
 
-    def parse(
-        self, *, headers: Mapping[str, str], body: bytes
-    ) -> tuple[dict | None, list[tuple]]:
+    def parse(self, *, headers: Mapping[str, str], body: bytes) -> tuple[dict | None, list[tuple]]:
         payload = json.loads(body)
         if payload.get("type") == "url_verification":  # one-time endpoint handshake
             return {"challenge": payload.get("challenge")}, []

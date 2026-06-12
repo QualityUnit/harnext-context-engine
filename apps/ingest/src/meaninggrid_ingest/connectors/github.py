@@ -15,7 +15,13 @@ from urllib.parse import quote
 import httpx
 from meaninggrid_shared import CloudEvent, utcnow
 
-from meaninggrid_ingest.connectors.base import EventConnector, FetchResult, PollingConnector
+from meaninggrid_ingest.connectors.base import (
+    EventConnector,
+    FetchResult,
+    PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
+)
 from meaninggrid_ingest.security import verify_github_signature
 
 _API = "https://api.github.com"
@@ -140,9 +146,7 @@ def _clip_bytes(text: str, limit: int) -> tuple[str, bool]:
     return text.encode("utf-8")[:limit].decode("utf-8", "ignore"), True
 
 
-async def _raw_content(
-    client: httpx.AsyncClient, url: str, ref: str | None
-) -> str | None:
+async def _raw_content(client: httpx.AsyncClient, url: str, ref: str | None) -> str | None:
     """Fetch a file's raw text at ``ref``. Returns None for non-200 or binary."""
     params = {"ref": ref} if ref else None
     r = await client.get(url, params=params, headers={"Accept": _RAW_ACCEPT})
@@ -227,6 +231,33 @@ async def enrich_files(
         return
 
 
+def _github_retry_after(r: httpx.Response) -> float | None:
+    """Seconds to wait before retrying a rate-limited GitHub response.
+
+    A ``Retry-After`` header (secondary limit) wins; otherwise the *primary*
+    limit's ``X-RateLimit-Reset`` (epoch seconds) gives the exact reset time.
+    ``None`` when GitHub gave no hint — the caller falls back to backoff."""
+    ra = parse_retry_after(r.headers)
+    if ra is not None:
+        return ra
+    if r.headers.get("X-RateLimit-Remaining") == "0":
+        reset = (r.headers.get("X-RateLimit-Reset") or "").strip()
+        if reset.isdigit():
+            return max(0.0, float(reset) - utcnow().timestamp())
+    return None
+
+
+def _is_github_rate_limited(r: httpx.Response) -> bool:
+    """A 403/429 that is a rate limit (primary or secondary), not a permission
+    denial — GitHub overloads 403 for both, so distinguish on the headers/body."""
+    if r.status_code not in (403, 429):
+        return False
+    if r.headers.get("X-RateLimit-Remaining") == "0" or "Retry-After" in r.headers:
+        return True
+    body = r.text.lower()
+    return "rate limit" in body or "secondary rate" in body
+
+
 class GitHubConnector(EventConnector, PollingConnector):
     kind = "github"
 
@@ -237,9 +268,7 @@ class GitHubConnector(EventConnector, PollingConnector):
     def verify(self, *, secret: str, headers: Mapping[str, str], body: bytes) -> bool:
         return verify_github_signature(secret, headers.get("X-Hub-Signature-256", ""), body)
 
-    def parse(
-        self, *, headers: Mapping[str, str], body: bytes
-    ) -> tuple[dict | None, list[tuple]]:
+    def parse(self, *, headers: Mapping[str, str], body: bytes) -> tuple[dict | None, list[tuple]]:
         event = headers.get("X-GitHub-Event", "")
         if event == "ping":  # GitHub's create-webhook handshake
             return {"ok": True}, []
@@ -352,6 +381,11 @@ class GitHubConnector(EventConnector, PollingConnector):
         if since:
             q["since"] = since
         r = await client.get(url, params=q)
+        if _is_github_rate_limited(r):
+            # Transient — surface the API's reset time so the poll task retries
+            # then, instead of failing the sync. (Add a token to raise the ceiling
+            # from ~60 to ~5000 req/h, but a token can be throttled too.)
+            raise RateLimitedError("GitHub", _github_retry_after(r))
         if r.status_code == 404:
             raise RuntimeError(
                 "repository not found or private — check the name and provide a token with access"
@@ -359,8 +393,6 @@ class GitHubConnector(EventConnector, PollingConnector):
         if r.status_code == 401:
             raise RuntimeError("GitHub rejected the token — it's invalid or expired")
         if r.status_code == 403:
-            if "rate limit" in r.text.lower():
-                raise RuntimeError("GitHub rate limit exceeded — add a token to increase it")
             raise RuntimeError(
                 "GitHub denied access (403) — the token lacks permission for this repository"
             )

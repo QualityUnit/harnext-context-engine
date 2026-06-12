@@ -5,6 +5,7 @@ import json
 
 import httpx
 import pytest
+from meaninggrid_ingest.connectors.base import RateLimitedError
 from meaninggrid_ingest.connectors.stripe import StripeConnector, verify_credentials
 from meaninggrid_ingest.service import SourceService
 from meaninggrid_ingest.settings import IngestSettings
@@ -212,9 +213,9 @@ def test_raise_for_stripe():
         with pytest.raises(RuntimeError) as ei:
             StripeConnector._raise_for_stripe(R(code))
         assert frag in str(ei.value)
-    with pytest.raises(RuntimeError) as ei:
+    with pytest.raises(RateLimitedError) as ei:
         StripeConnector._raise_for_stripe(R(429, {"Retry-After": "7"}))
-    assert "rate limit" in str(ei.value) and "7" in str(ei.value)
+    assert ei.value.retry_after == 7.0
     StripeConnector._raise_for_stripe(R(200))  # ok → no raise
 
 

@@ -28,6 +28,7 @@ from meaninggrid_shared import (
 
 from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent, stripe
+from meaninggrid_ingest.connectors.base import RateLimitedError
 from meaninggrid_ingest.kafka import Producer
 from meaninggrid_ingest.schemas import (
     AnalyticsOut,
@@ -645,6 +646,19 @@ async def sync_source(source_id: str, svc: SvcDep, user: UserDep) -> SyncOut:
     await _owned_source(svc, user, source_id)
     try:
         n = await svc.sync(source_id)
+    except RateLimitedError as e:
+        # Don't fail the inline sync on a transient rate limit — hand it to the
+        # poll task to retry at the provider's reset time, and tell the caller
+        # when via a 429 + Retry-After (instead of a hard 502).
+        countdown = int(e.retry_after) if e.retry_after is not None else 60
+        try:
+            from meaninggrid_ingest.tasks import poll_source
+
+            poll_source.apply_async((source_id,), countdown=countdown)  # pyright: ignore[reportFunctionMemberAccess]
+            detail = f"{e} — scheduled a background retry in {countdown}s"
+        except Exception:  # noqa: BLE001 — broker down; still report the rate limit
+            detail = f"{e} — could not schedule a retry (worker/broker unavailable)"
+        raise HTTPException(429, detail, headers={"Retry-After": str(countdown)}) from e
     except Exception as e:
         raise HTTPException(502, f"sync failed: {e}") from e
     return SyncOut(source_id=source_id, ingested=n)

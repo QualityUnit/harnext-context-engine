@@ -3,6 +3,7 @@ resume, message folding, error mapping, and the project-integration wiring."""
 
 import httpx
 import pytest
+from meaninggrid_ingest.connectors.base import RateLimitedError
 from meaninggrid_ingest.connectors.liveagent import (
     LiveAgentConnector,
     normalize_base_url,
@@ -147,8 +148,11 @@ async def test_connector_builds_events(monkeypatch):
 
     res = await LiveAgentConnector().fetch(
         org_id="p1",
-        config={"base_url": "https://acme.ladesk.com", "department_id": "dept1",
-                "department_name": "Support"},
+        config={
+            "base_url": "https://acme.ladesk.com",
+            "department_id": "dept1",
+            "department_name": "Support",
+        },
         secret="key-123",
         since=None,
     )
@@ -177,8 +181,7 @@ async def test_tag_filter_added(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     await LiveAgentConnector().fetch(
         org_id="p1",
-        config={"base_url": "https://acme.ladesk.com", "department_id": "dept1",
-                "tag_id": "vip"},
+        config={"base_url": "https://acme.ladesk.com", "department_id": "dept1", "tag_id": "vip"},
         secret="key-123",
         since=None,
     )
@@ -217,8 +220,12 @@ async def test_empty_result_keeps_cursor(monkeypatch):
 async def test_missing_key_or_department_raises():
     c = LiveAgentConnector()
     with pytest.raises(RuntimeError, match="API key"):
-        await c.fetch(org_id="p1", config={"base_url": "https://x", "department_id": "d"},
-                      secret=None, since=None)
+        await c.fetch(
+            org_id="p1",
+            config={"base_url": "https://x", "department_id": "d"},
+            secret=None,
+            since=None,
+        )
     with pytest.raises(RuntimeError, match="department"):
         await c.fetch(org_id="p1", config={"base_url": "https://x"}, secret="k", since=None)
 
@@ -237,9 +244,9 @@ def test_raise_for_status():
         with pytest.raises(RuntimeError) as ei:
             LiveAgentConnector._raise_for_liveagent(R(code))
         assert frag in str(ei.value)
-    with pytest.raises(RuntimeError) as ei:
+    with pytest.raises(RateLimitedError) as ei:
         LiveAgentConnector._raise_for_liveagent(R(429, {"Retry-After": "7"}))
-    assert "rate limit" in str(ei.value) and "7" in str(ei.value)
+    assert ei.value.retry_after == 7.0
     LiveAgentConnector._raise_for_liveagent(R(200))  # ok → no raise
 
 

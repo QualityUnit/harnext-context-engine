@@ -31,6 +31,11 @@ app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,  # one task at a time → fair rate-limiting
     broker_connection_retry_on_startup=True,
+    # A rate-limited poll can be re-queued with a countdown up to a GitHub
+    # primary-limit reset (~1h). Redis re-delivers a reserved task once its
+    # visibility_timeout (default 1h) elapses, which would run a long-delayed
+    # retry twice — push the window well past any reset wait to prevent that.
+    broker_transport_options={"visibility_timeout": 43200},  # 12h
     beat_schedule={
         "dispatch-due-polls": {
             "task": "meaninggrid_ingest.tasks.dispatch_due_polls",

@@ -30,7 +30,12 @@ from typing import Any
 import httpx
 from meaninggrid_shared import CloudEvent
 
-from meaninggrid_ingest.connectors.base import FetchResult, PollingConnector
+from meaninggrid_ingest.connectors.base import (
+    FetchResult,
+    PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
+)
 
 _API_PATH = "/api/v3"
 _BODY_CLIP = 1200
@@ -259,8 +264,7 @@ class LiveAgentConnector(PollingConnector):
                 "install's root, e.g. https://yourco.ladesk.com)"
             )
         if r.status_code == 429:
-            retry = r.headers.get("Retry-After", "?")
-            raise RuntimeError(f"LiveAgent rate limit exceeded — retry after {retry}s")
+            raise RateLimitedError("LiveAgent", parse_retry_after(r.headers))
         r.raise_for_status()
 
 

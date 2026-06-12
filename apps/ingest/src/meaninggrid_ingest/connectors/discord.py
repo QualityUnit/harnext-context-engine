@@ -15,7 +15,12 @@ from typing import Any
 import httpx
 from meaninggrid_shared import CloudEvent
 
-from meaninggrid_ingest.connectors.base import FetchResult, PollingConnector
+from meaninggrid_ingest.connectors.base import (
+    FetchResult,
+    PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
+)
 
 _API = "https://discord.com/api/v10"
 
@@ -93,6 +98,5 @@ class DiscordConnector(PollingConnector):
                 "Discord channel not found — check the channel id and that the bot is invited"
             )
         if r.status_code == 429:
-            retry = r.headers.get("Retry-After", "?")
-            raise RuntimeError(f"Discord rate limit exceeded — retry after {retry}s")
+            raise RateLimitedError("Discord", parse_retry_after(r.headers))
         r.raise_for_status()

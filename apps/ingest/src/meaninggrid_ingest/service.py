@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meaninggrid_ingest import oauth
 from meaninggrid_ingest.connectors import get_connector
+from meaninggrid_ingest.connectors.base import RateLimitedError
 from meaninggrid_ingest.connectors.github import normalize_repo
 from meaninggrid_ingest.connectors.slack import slack_message_event
 from meaninggrid_ingest.security import hash_password, verify_password
@@ -325,9 +326,7 @@ class SourceService:
                 proj.discord_guild_name = guild_name
                 await s.commit()
 
-    async def set_liveagent_integration(
-        self, project_id: str, base_url: str, api_key: str
-    ) -> None:
+    async def set_liveagent_integration(self, project_id: str, base_url: str, api_key: str) -> None:
         """Store a project's LiveAgent base URL + v3 API key (no OAuth). Sources
         snapshot these at create time (base URL → config, key → secret)."""
         async with self.sm() as s:
@@ -518,6 +517,11 @@ class SourceService:
                 await self._record_ingested(src, ev)
             await self._mark_synced(source_id, result.cursor)
             return len(result.events)
+        except RateLimitedError:
+            # Transient back-off, not a failure: leave the source ``active`` (no
+            # _mark_error) so the poll task can retry at the API's reset time and
+            # beat keeps polling it next interval. Re-raise for the caller to retry.
+            raise
         except Exception as e:
             await self._mark_error(source_id, str(e))
             raise
@@ -641,9 +645,7 @@ class SourceService:
             return 0
 
         async with self.sm() as s:
-            srcs = list(
-                (await s.execute(select(Source).where(Source.kind == "github"))).scalars()
-            )
+            srcs = list((await s.execute(select(Source).where(Source.kind == "github"))).scalars())
         matches = [src for src in srcs if json.loads(src.config_json).get("repo") == repo]
         if not matches:
             return 0

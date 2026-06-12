@@ -32,7 +32,12 @@ from typing import Any, cast
 import httpx
 from meaninggrid_shared import CloudEvent
 
-from meaninggrid_ingest.connectors.base import FetchResult, PollingConnector
+from meaninggrid_ingest.connectors.base import (
+    FetchResult,
+    PollingConnector,
+    RateLimitedError,
+    parse_retry_after,
+)
 
 log = logging.getLogger("ingest.connectors.youtube")
 
@@ -294,6 +299,8 @@ class YouTubeConnector(PollingConnector):
             return None, lang
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(fmt["url"])
+            if r.status_code == 429:  # YouTube throttling the caption fetch
+                raise RateLimitedError("YouTube", parse_retry_after(r.headers))
             r.raise_for_status()
             body = r.text
         return _parse_caption(body, str(fmt.get("ext", ""))), lang

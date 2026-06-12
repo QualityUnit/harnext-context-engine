@@ -157,16 +157,37 @@ async def test_mcp_request_analytics_and_list(tmp_path):
         async with svc.sm() as s:
             s.add_all(
                 [
-                    McpRequest(id="r1", org_id=p.id, tool="context_research",
-                               params_json='{"question":"q"}', status="ok",
-                               response_json='{"answer":"a"}', error=None, duration_ms=120),
-                    McpRequest(id="r2", org_id=p.id, tool="context_update",
-                               params_json='{"instruction":"i"}', status="error",
-                               response_json=None, error="boom", duration_ms=80),
+                    McpRequest(
+                        id="r1",
+                        org_id=p.id,
+                        tool="context_research",
+                        params_json='{"question":"q"}',
+                        status="ok",
+                        response_json='{"answer":"a"}',
+                        error=None,
+                        duration_ms=120,
+                    ),
+                    McpRequest(
+                        id="r2",
+                        org_id=p.id,
+                        tool="context_update",
+                        params_json='{"instruction":"i"}',
+                        status="error",
+                        response_json=None,
+                        error="boom",
+                        duration_ms=80,
+                    ),
                     # a different project's row must not leak into P's view
-                    McpRequest(id="r3", org_id=other.id, tool="context_research",
-                               params_json="{}", status="ok", response_json="{}",
-                               error=None, duration_ms=10),
+                    McpRequest(
+                        id="r3",
+                        org_id=other.id,
+                        tool="context_research",
+                        params_json="{}",
+                        status="ok",
+                        response_json="{}",
+                        error=None,
+                        duration_ms=10,
+                    ),
                 ]
             )
             await s.commit()
@@ -207,9 +228,16 @@ async def test_mcp_requests_endpoint(tmp_path):
         p = await svc.create_project(u.id, "P")
         async with svc.sm() as s:
             s.add(
-                McpRequest(id="r1", org_id=p.id, tool="context_get_urls",
-                           params_json='{"urls":["cms://conversation/x"]}', status="ok",
-                           response_json='[{"found":true}]', error=None, duration_ms=42)
+                McpRequest(
+                    id="r1",
+                    org_id=p.id,
+                    tool="context_get_urls",
+                    params_json='{"urls":["cms://conversation/x"]}',
+                    status="ok",
+                    response_json='[{"found":true}]',
+                    error=None,
+                    duration_ms=42,
+                )
             )
             await s.commit()
 
@@ -270,11 +298,19 @@ async def test_slack_event_routing(tmp_path):
         p = await svc.create_project(u.id, "P")
         await svc.set_slack_token(p.id, "T1", "Team", "xoxb")
         await svc.create_source(p.id, "slack", {"channel_id": "C1", "channel_name": "eng"}, "xoxb")
-        ev = {"type": "message", "channel": "C1", "user": "U1", "text": "hi", "ts": "1700000000.0001"}
+        ev = {
+            "type": "message",
+            "channel": "C1",
+            "user": "U1",
+            "text": "hi",
+            "ts": "1700000000.0001",
+        }
         assert await svc.ingest_slack_event("T1", ev) == 1
         sent = producer.sent[-1][1]
         assert sent.id == "slack-C1-1700000000.0001" and sent.subject == "channel:eng"
-        assert await svc.ingest_slack_event("T1", {**ev, "channel": "CX"}) == 0  # unregistered channel
+        assert (
+            await svc.ingest_slack_event("T1", {**ev, "channel": "CX"}) == 0
+        )  # unregistered channel
         assert await svc.ingest_slack_event("OTHER", ev) == 0  # wrong workspace
     finally:
         await engine.dispose()
@@ -333,7 +369,10 @@ async def test_slack_webhook_endpoint(tmp_path):
             r = await c.post(
                 "/webhooks/slack",
                 content=body,
-                headers={"X-Slack-Request-Timestamp": str(int(_t.time())), "X-Slack-Signature": "v0=bad"},
+                headers={
+                    "X-Slack-Request-Timestamp": str(int(_t.time())),
+                    "X-Slack-Signature": "v0=bad",
+                },
             )
             assert r.status_code == 401
     finally:
@@ -370,8 +409,13 @@ async def test_github_event_routing(tmp_path, monkeypatch):
             "ref": "refs/heads/main",
             "repository": {"full_name": "acme/web", "default_branch": "main"},
             "commits": [
-                {"id": "abc", "message": "fix", "timestamp": "2026-06-08T00:00:00Z",
-                 "url": "u", "author": {"name": "ada"}}
+                {
+                    "id": "abc",
+                    "message": "fix",
+                    "timestamp": "2026-06-08T00:00:00Z",
+                    "url": "u",
+                    "author": {"name": "ada"},
+                }
             ],
         }
         assert await svc.ingest_github_event("push", push) == 1
@@ -381,14 +425,26 @@ async def test_github_event_routing(tmp_path, monkeypatch):
         # non-default branch -> ignored
         assert await svc.ingest_github_event("push", {**push, "ref": "refs/heads/feat"}) == 0
         # different repo -> no matching source
-        assert await svc.ingest_github_event("push", {**push, "repository": {"full_name": "x/y", "default_branch": "main"}}) == 0
+        assert (
+            await svc.ingest_github_event(
+                "push", {**push, "repository": {"full_name": "x/y", "default_branch": "main"}}
+            )
+            == 0
+        )
 
         pr = {
             "action": "opened",
             "repository": {"full_name": "acme/web"},
-            "pull_request": {"number": 9, "title": "PR", "state": "open", "body": "y",
-                             "labels": [], "user": {"login": "bob"}, "html_url": "u",
-                             "updated_at": "2026-06-08T02:00:00Z"},
+            "pull_request": {
+                "number": 9,
+                "title": "PR",
+                "state": "open",
+                "body": "y",
+                "labels": [],
+                "user": {"login": "bob"},
+                "html_url": "u",
+                "updated_at": "2026-06-08T02:00:00Z",
+            },
         }
         assert await svc.ingest_github_event("pull_request", pr) == 1
         assert producer.sent[-1][1].type == "com.github.pull_request"
@@ -429,25 +485,43 @@ async def test_github_webhook_endpoint(tmp_path, monkeypatch):
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
             # ping handshake
             raw = _json.dumps({"zen": "Keep it simple"}).encode()
-            r = await c.post("/webhooks/github", content=raw,
-                             headers={"X-GitHub-Event": "ping", "X-Hub-Signature-256": sign(raw)})
+            r = await c.post(
+                "/webhooks/github",
+                content=raw,
+                headers={"X-GitHub-Event": "ping", "X-Hub-Signature-256": sign(raw)},
+            )
             assert r.status_code == 200
 
             # signed push -> a commit CloudEvent is produced
-            raw = _json.dumps({
-                "ref": "refs/heads/main",
-                "repository": {"full_name": "acme/web", "default_branch": "main"},
-                "commits": [{"id": "deadbeef", "message": "x", "timestamp": "2026-06-08T00:00:00Z",
-                             "url": "u", "author": {"name": "ada"}}],
-            }).encode()
-            r = await c.post("/webhooks/github", content=raw,
-                             headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(raw)})
+            raw = _json.dumps(
+                {
+                    "ref": "refs/heads/main",
+                    "repository": {"full_name": "acme/web", "default_branch": "main"},
+                    "commits": [
+                        {
+                            "id": "deadbeef",
+                            "message": "x",
+                            "timestamp": "2026-06-08T00:00:00Z",
+                            "url": "u",
+                            "author": {"name": "ada"},
+                        }
+                    ],
+                }
+            ).encode()
+            r = await c.post(
+                "/webhooks/github",
+                content=raw,
+                headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(raw)},
+            )
             assert r.status_code == 200
             assert any(e.id == "github-commit-acme/web-deadbeef" for _, e in producer.sent)
 
             # bad signature -> 401
-            r = await c.post("/webhooks/github", content=raw,
-                             headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=bad"})
+            r = await c.post(
+                "/webhooks/github",
+                content=raw,
+                headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=bad"},
+            )
             assert r.status_code == 401
     finally:
         app.dependency_overrides.clear()
@@ -457,7 +531,9 @@ async def test_github_webhook_endpoint(tmp_path, monkeypatch):
 async def test_github_source_autoregisters_webhook(tmp_path, monkeypatch):
     svc, engine, _ = await _svc(tmp_path)
     try:
-        svc.s = IngestSettings(github_webhook_secret="ghsecret", oauth_redirect_base="https://x.dev/api")
+        svc.s = IngestSettings(
+            github_webhook_secret="ghsecret", oauth_redirect_base="https://x.dev/api"
+        )
         calls = []
 
         async def fake_create(token, repo, url, secret):
@@ -606,6 +682,7 @@ def test_discord_authorize_url():
 
 
 def test_discord_raise_for_status():
+    from meaninggrid_ingest.connectors.base import RateLimitedError
     from meaninggrid_ingest.connectors.discord import DiscordConnector
 
     class R:
@@ -621,9 +698,9 @@ def test_discord_raise_for_status():
         with pytest.raises(RuntimeError) as ei:
             DiscordConnector._raise_for_discord(R(code))
         assert frag in str(ei.value)
-    with pytest.raises(RuntimeError) as ei:
+    with pytest.raises(RateLimitedError) as ei:
         DiscordConnector._raise_for_discord(R(429, {"Retry-After": "3"}))
-    assert "rate limit" in str(ei.value) and "3" in str(ei.value)
+    assert ei.value.retry_after == 3.0
     DiscordConnector._raise_for_discord(R(200))  # ok → no raise
 
 
@@ -632,12 +709,24 @@ async def test_discord_connector_builds_events(monkeypatch):
     from meaninggrid_ingest.connectors.discord import DiscordConnector
 
     messages = [  # Discord returns newest-first
-        {"id": "30", "content": "third", "timestamp": "2026-06-03T00:00:00+00:00",
-         "author": {"username": "carol"}},
-        {"id": "20", "content": "second", "timestamp": "2026-06-02T00:00:00+00:00",
-         "author": {"username": "bob"}},
-        {"id": "10", "content": "first", "timestamp": "2026-06-01T00:00:00+00:00",
-         "author": {"username": "alice"}},
+        {
+            "id": "30",
+            "content": "third",
+            "timestamp": "2026-06-03T00:00:00+00:00",
+            "author": {"username": "carol"},
+        },
+        {
+            "id": "20",
+            "content": "second",
+            "timestamp": "2026-06-02T00:00:00+00:00",
+            "author": {"username": "bob"},
+        },
+        {
+            "id": "10",
+            "content": "first",
+            "timestamp": "2026-06-01T00:00:00+00:00",
+            "author": {"username": "alice"},
+        },
     ]
 
     class FakeResp:

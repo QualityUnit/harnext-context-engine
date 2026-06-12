@@ -18,10 +18,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
-from meaninggrid_shared import CloudEvent
+from meaninggrid_shared import CloudEvent, utcnow
 
 _BODY_CLIP = 1200
 
@@ -30,6 +31,48 @@ _BODY_CLIP = 1200
 class FetchResult:
     events: list[CloudEvent]  # chronological (oldest first)
     cursor: str | None  # new incremental-sync watermark
+
+
+class RateLimitedError(Exception):
+    """A provider's API asked us to back off (rate limit hit).
+
+    Unlike a hard error, this is *transient*: the Celery poll task re-queues the
+    source after ``retry_after`` seconds — honouring the API's own reset time
+    when it gives one — instead of failing the sync and marking the source
+    errored. ``retry_after`` is seconds to wait, or ``None`` when the API gave no
+    hint (the task then falls back to exponential backoff). The provider-agnostic
+    sibling of the sitemap crawler's ``TransientCrawlError``."""
+
+    def __init__(self, provider: str, retry_after: float | None = None, detail: str = "") -> None:
+        wait = f"retry after {retry_after:.0f}s" if retry_after is not None else "backing off"
+        super().__init__(f"{provider} rate limit hit — {wait}" + (f": {detail}" if detail else ""))
+        self.provider = provider
+        self.retry_after = retry_after
+
+
+def parse_retry_after(headers: Mapping[str, str]) -> float | None:
+    """Parse a standard ``Retry-After`` header into seconds-from-now.
+
+    Handles both wire forms: delta-seconds (``"120"``, or a fractional value as
+    Discord sends, ``"1.5"``) and an HTTP-date. Returns ``None`` when the header
+    is absent or unparseable."""
+    raw = headers.get("Retry-After")
+    if not raw:
+        return None
+    raw = raw.strip()
+    try:
+        return max(0.0, float(raw))  # delta-seconds (Discord may send fractional)
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - utcnow()).total_seconds())
 
 
 class Connector(ABC):
@@ -101,9 +144,7 @@ class EventConnector(Connector):
         ...
 
     @abstractmethod
-    def parse(
-        self, *, headers: Mapping[str, str], body: bytes
-    ) -> tuple[dict | None, list[tuple]]:
+    def parse(self, *, headers: Mapping[str, str], body: bytes) -> tuple[dict | None, list[tuple]]:
         """Turn a verified request into ``(handshake_response, dispatches)``.
 
         ``handshake_response`` is a dict to return verbatim for endpoint
