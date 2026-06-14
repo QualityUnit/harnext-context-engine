@@ -22,6 +22,7 @@ from harnext_builder.harness.base import ConversationTranscript, HarnessRequest
 from harnext_builder.persistence import Persistence
 from harnext_builder.prompts import SYSTEM_PROMPT, render_instruction
 from harnext_builder.settings import BuilderSettings
+from harnext_builder.skills_mount import skill_mount_files
 from harnext_builder.work_item import WorkItem
 
 # Both backends exec this with the org FS as cwd.
@@ -85,6 +86,7 @@ class BuildRunner:
             instruction=instruction,
             system_prompt=SYSTEM_PROMPT,
             event_files=event_files(wi.events),  # changed files → _event/ for the agent
+            skill_files=await skill_mount_files(self.p.sm, wi.org_id),  # → .claude/skills/
             model=self.s.builder_model,
             max_turns=self.s.builder_max_turns,
             timeout_s=self.s.builder_timeout_s,

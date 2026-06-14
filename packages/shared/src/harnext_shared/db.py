@@ -2,6 +2,7 @@
 
 One SQLite file (WAL) is shared by all apps as the OLTP/metadata store:
     - source registry        (Org, Source)        — written by apps/ingest
+    - skill registry         (Skill, SkillFile)   — written by apps/ingest, read by apps/mcp + apps/builder
     - ingest record          (IngestedEvent)      — written by apps/ingest
     - classifier baselines   (EntityBaseline)     — written by apps/classifier
     - build idempotency      (BuildLedger)        — written by apps/builder
@@ -20,7 +21,18 @@ Schema is dialect-agnostic so a Postgres swap is a connection-string change.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, event
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+)
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -142,6 +154,54 @@ class Source(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class Skill(Base):
+    """A project-scoped skill: a named directory of files with a mandatory
+    ``SKILL.md`` entry file, shared by everyone in the project.
+
+    Served over MCP as ``skill://{name}/...`` resources and materialized into
+    agent working dirs as ``.claude/skills/{name}/`` (see
+    ``harnext_shared.skills_fs``). ``name`` is a slug matching
+    ``^[a-z0-9][a-z0-9_-]{0,63}$`` — it doubles as the URI host and the
+    directory name, and is unique per project.
+    """
+
+    __tablename__ = "skills"
+    __table_args__ = (
+        Index("ix_skills_org_id", "org_id"),
+        UniqueConstraint("org_id", "name", name="uq_skills_org_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    org_id: Mapped[str] = mapped_column(String(64), ForeignKey("projects.id"))  # project id
+    name: Mapped[str] = mapped_column(String(64))  # slug: ^[a-z0-9][a-z0-9_-]{0,63}$
+    description: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkillFile(Base):
+    """One file within a skill. ``path`` is relative POSIX (``SKILL.md``,
+    ``scripts/run.py``, …); ``hash`` is ``sha256:<hex>`` of ``content``.
+    Metadata is computed by ``harnext_shared.skills_fs.skill_file_meta``."""
+
+    __tablename__ = "skill_files"
+    __table_args__ = (
+        Index("ix_skill_files_skill_id", "skill_id"),
+        UniqueConstraint("skill_id", "path", name="uq_skill_files_skill_path"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex
+    skill_id: Mapped[str] = mapped_column(String(64), ForeignKey("skills.id"))
+    path: Mapped[str] = mapped_column(String(512))  # relative POSIX, no leading "/" or ".."
+    mime_type: Mapped[str] = mapped_column(String(255))
+    size: Mapped[int] = mapped_column(Integer)
+    hash: Mapped[str] = mapped_column(String(128))  # "sha256:<hex>"
+    content: Mapped[bytes] = mapped_column(LargeBinary)
 
 
 class IngestedEvent(Base):

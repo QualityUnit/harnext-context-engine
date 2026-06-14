@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -21,6 +23,8 @@ from harnext_shared import (
     IngestedEvent,
     McpRequest,
     Project,
+    Skill,
+    SkillFile,
     Source,
     User,
     create_mcp_token,
@@ -29,6 +33,7 @@ from harnext_shared import (
     make_engine,
     make_sessionmaker,
 )
+from harnext_shared.skills_fs import SKILL_NAME_RE
 
 from harnext_ingest import oauth
 from harnext_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent, stripe
@@ -65,6 +70,11 @@ from harnext_ingest.schemas import (
     ProjectRename,
     RegisterIn,
     RepoOut,
+    SkillCreate,
+    SkillFileIn,
+    SkillFileOut,
+    SkillOut,
+    SkillUpdate,
     SourceCreate,
     SourceOut,
     StripeConnectIn,
@@ -276,6 +286,16 @@ async def _owned_source(svc: SourceService, user: User, source_id: str) -> Sourc
     return src
 
 
+async def _owned_skill(
+    svc: SourceService, user: User, skill_id: str
+) -> tuple[Skill, list[SkillFile]]:
+    found = await svc.get_skill(skill_id)
+    if found is None:
+        raise HTTPException(404, "skill not found")
+    await _owned_project(svc, user, found[0].org_id)
+    return found
+
+
 def _safe_relpath(path: str) -> str:
     """Normalize a client-supplied FS path and reject anything that could escape
     the org's filesystem (absolute paths, ``..`` traversal)."""
@@ -284,6 +304,79 @@ def _safe_relpath(path: str) -> str:
     if not rel or pp.is_absolute() or any(part == ".." for part in pp.parts):
         raise HTTPException(400, "invalid path")
     return str(pp)
+
+
+def _safe_skill_path(path: str) -> str:
+    """Normalize a skill file path: relative POSIX, no leading "/", no "..", no
+    "\\\\". '#', '?' and '%' are rejected because they cannot round-trip through
+    a ``skill://`` URI. "_manifest" basenames are reserved for the MCP manifest
+    resource, and "SKILL.md" is only valid at the root — a nested SKILL.md is
+    listed as a phantom skill by ``skill://`` clients (they match any URI ending
+    in "/SKILL.md")."""
+    rel = path.strip()
+    pp = PurePosixPath(rel)
+    if (
+        not rel
+        or rel.startswith("/")
+        or "\\" in rel
+        or any(c in rel for c in "#?%")
+        or any(part == ".." for part in pp.parts)
+        or str(pp) == "."
+        or pp.name == "_manifest"
+        or (pp.name == "SKILL.md" and len(pp.parts) > 1)
+    ):
+        raise HTTPException(400, f"invalid skill file path {path!r}")
+    return str(pp)
+
+
+def _decode_skill_files(files: list[SkillFileIn]) -> dict[str, bytes]:
+    """Validate + decode a client-supplied skill file set to ``{path: bytes}``.
+    Every skill must carry its ``SKILL.md`` entry file."""
+    out: dict[str, bytes] = {}
+    dirs: set[str] = set()  # every ancestor directory implied by a file path
+    for f in files:
+        rel = _safe_skill_path(f.path)
+        if rel in out:
+            raise HTTPException(400, f"duplicate skill file path {rel!r}")
+        dirs.update(str(p) for p in PurePosixPath(rel).parents if str(p) != ".")
+        if f.encoding == "base64":
+            try:
+                out[rel] = base64.b64decode(f.content, validate=True)
+            except (binascii.Error, ValueError) as e:
+                raise HTTPException(400, f"invalid base64 content for {rel!r}") from e
+        else:
+            out[rel] = f.content.encode("utf-8")
+    for clash in sorted(set(out) & dirs):  # "a" + "a/b" can't both land on disk
+        raise HTTPException(400, f"skill file path {clash!r} is also a directory of another file")
+    if "SKILL.md" not in out:
+        raise HTTPException(400, "a skill requires a SKILL.md file")
+    return out
+
+
+def _skill_file_out(f: SkillFile, include_content: bool) -> SkillFileOut:
+    out = SkillFileOut(path=f.path, size=f.size, hash=f.hash, mime_type=f.mime_type)
+    if include_content:
+        is_text = f.mime_type.startswith("text/") or f.mime_type == "application/json"
+        if is_text:
+            try:
+                out.content, out.encoding = f.content.decode("utf-8"), "utf-8"
+                return out
+            except UnicodeDecodeError:
+                pass  # mislabeled binary — fall through to base64
+        out.content, out.encoding = base64.b64encode(f.content).decode("ascii"), "base64"
+    return out
+
+
+def _skill_out(skill: Skill, files: list[SkillFile], include_content: bool = False) -> SkillOut:
+    return SkillOut(
+        id=skill.id,
+        project_id=skill.org_id,
+        name=skill.name,
+        description=skill.description,
+        files=[_skill_file_out(f, include_content) for f in files],
+        created_at=skill.created_at,
+        updated_at=skill.updated_at,
+    )
 
 
 def _token(cfg: IngestSettings, user: User) -> str:
@@ -902,6 +995,54 @@ async def sync_source(source_id: str, svc: SvcDep, user: UserDep) -> SyncOut:
     except Exception as e:
         raise HTTPException(502, f"sync failed: {e}") from e
     return SyncOut(source_id=source_id, ingested=n)
+
+
+# -- skills ------------------------------------------------------------------
+# Project-scoped skill directories shared by everyone in the project: a named
+# set of files with a mandatory SKILL.md entry file. Served over MCP as
+# skill://{name}/... and materialized into agent working dirs by the builder.
+@app.post("/skills", response_model=SkillOut, response_model_exclude_none=True)
+async def create_skill(body: SkillCreate, svc: SvcDep, user: UserDep) -> SkillOut:
+    await _owned_project(svc, user, body.project_id)
+    name = body.name.strip()
+    if not SKILL_NAME_RE.match(name):
+        raise HTTPException(400, f"invalid skill name {body.name!r} (want {SKILL_NAME_RE.pattern})")
+    files = _decode_skill_files(body.files)
+    try:
+        skill, rows = await svc.create_skill(body.project_id, name, body.description, files)
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    return _skill_out(skill, rows)
+
+
+@app.get("/skills", response_model=list[SkillOut], response_model_exclude_none=True)
+async def list_skills(
+    svc: SvcDep, user: UserDep, project_id: Annotated[str, Query()]
+) -> list[SkillOut]:
+    await _owned_project(svc, user, project_id)
+    return [_skill_out(sk, rows) for sk, rows in await svc.list_skills(project_id)]
+
+
+@app.get("/skills/{skill_id}", response_model=SkillOut)
+async def get_skill(skill_id: str, svc: SvcDep, user: UserDep) -> SkillOut:
+    skill, rows = await _owned_skill(svc, user, skill_id)
+    return _skill_out(skill, rows, include_content=True)
+
+
+@app.put("/skills/{skill_id}", response_model=SkillOut, response_model_exclude_none=True)
+async def update_skill(skill_id: str, body: SkillUpdate, svc: SvcDep, user: UserDep) -> SkillOut:
+    await _owned_skill(svc, user, skill_id)
+    files = _decode_skill_files(body.files) if body.files is not None else None
+    updated = await svc.update_skill(skill_id, body.description, files)
+    assert updated is not None
+    return _skill_out(*updated)
+
+
+@app.delete("/skills/{skill_id}")
+async def delete_skill(skill_id: str, svc: SvcDep, user: UserDep) -> dict:
+    await _owned_skill(svc, user, skill_id)
+    await svc.delete_skill(skill_id)
+    return {"deleted": skill_id}
 
 
 async def _handle_webhook(kind: str, secret: str, request: Request, ingest) -> dict:

@@ -117,6 +117,7 @@ export function Sidebar({
     { href: `${base}/sessions`, label: "Sessions", icon: Icon.terminal },
     { href: `${base}/sources`, label: "Sources", icon: Icon.sources },
     { href: `${base}/files`, label: "Files", icon: Icon.files },
+    { href: `${base}/skills`, label: "Skills", icon: Icon.zap },
     { href: `${base}/connect`, label: "Connect", icon: Icon.connect },
   ];
   // The index route ("Dashboard") matches exactly; sub-views match by prefix so

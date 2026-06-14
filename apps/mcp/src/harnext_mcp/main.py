@@ -7,6 +7,7 @@ over an org's AgentFS + conversation log:
   - context_research(question)        → synthesized, cited answer (read agent)
   - context_get_urls(urls)            → raw-conversation-log content by URL
   - context_update(instruction, ...)  → write agent applies it to the store
+plus the org's shared skills as skill://{name}/... resources (see skills.py).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from harnext_mcp.context import Resources, get_resources
 from harnext_mcp.conversation import conversation_url, get_conversation_payload
 from harnext_mcp.research import research
 from harnext_mcp.settings import MCPSettings
+from harnext_mcp.skills import SkillsProvider
 
 log = logging.getLogger("mcp")
 
@@ -51,6 +53,9 @@ class HarnextTokenVerifier(TokenVerifier):
 mcp: FastMCP = FastMCP(
     "Harnext Context", auth=HarnextTokenVerifier(settings.jwt_secret)
 )
+# The org's shared skills, served as skill://{name}/... resources (org-scoped
+# per request by the same bearer token the tools use).
+mcp.add_provider(SkillsProvider())
 
 
 def _org() -> str:

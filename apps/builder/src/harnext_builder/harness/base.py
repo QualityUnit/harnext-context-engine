@@ -37,6 +37,16 @@ class EventFile(BaseModel):
     content: str
 
 
+class SkillMountFile(BaseModel):
+    """One org-skill file to materialize in the agent's working dir before a
+    build. ``path`` is relative to the working dir (always under
+    ``.claude/skills/``); content is base64 so binary skill files survive the
+    JSON hop into the runner subprocess. See ``skills_mount``."""
+
+    path: str
+    content_b64: str
+
+
 class HarnessRequest(BaseModel):
     harness: str
     working_dir: str
@@ -47,6 +57,10 @@ class HarnessRequest(BaseModel):
     # Changed files for the triggering event(s), written into ``_event/`` for the
     # agent to read and removed after the build (never snapshotted). See event_fs.
     event_files: list[EventFile] = Field(default_factory=list)
+    # The org's project Skills, written into ``.claude/skills/`` for the harness
+    # to auto-load (setting_sources=["project"]) and removed after the build
+    # (never snapshotted). See skills_mount.
+    skill_files: list[SkillMountFile] = Field(default_factory=list)
     model: str | None = None
     max_turns: int = 40
     timeout_s: int = 300

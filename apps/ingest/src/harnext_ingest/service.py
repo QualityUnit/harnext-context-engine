@@ -25,9 +25,13 @@ from harnext_shared import (
     IngestedEvent,
     McpRequest,
     Project,
+    Skill,
+    SkillFile,
     Source,
     SourcePollState,
     User,
+    parse_skill_description,
+    skill_file_meta,
     create_agent_access_token,
     hash_refresh_token,
     new_device_code,
@@ -38,6 +42,7 @@ from harnext_shared import (
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import load_only
 
 from harnext_ingest import oauth
 from harnext_ingest.connectors import get_connector
@@ -198,9 +203,16 @@ class SourceService:
             proj = await s.get(Project, project_id)
             if proj is None:
                 return False
+            # skill_files are keyed by skill_id (not org_id); delete before Skill
+            await s.execute(
+                delete(SkillFile).where(
+                    SkillFile.skill_id.in_(select(Skill.id).where(Skill.org_id == project_id))
+                )
+            )
             for model in (
                 SourcePollState,  # FK → sources; delete before Source
                 Source,
+                Skill,  # FK → projects; its skill_files were deleted above
                 IngestedEvent,
                 BuildLedger,
                 FsSnapshot,
@@ -360,6 +372,125 @@ class SourceService:
                 proj.stripe_account_name = account_name
                 proj.stripe_api_key = api_key
                 await s.commit()
+
+    # -- skills --------------------------------------------------------------
+    # Project-scoped skill directories (SKILL.md + support files). Routes
+    # validate names/paths and decode base64 up front; the service stores the
+    # decoded bytes with metadata from ``harnext_shared.skill_file_meta``.
+    @staticmethod
+    def _skill_file_rows(skill_id: str, files: dict[str, bytes]) -> list[SkillFile]:
+        rows = []
+        for path in sorted(files):
+            mime, size, digest = skill_file_meta(path, files[path])
+            rows.append(
+                SkillFile(
+                    id=uuid.uuid4().hex,
+                    skill_id=skill_id,
+                    path=path,
+                    mime_type=mime,
+                    size=size,
+                    hash=digest,
+                    content=files[path],
+                )
+            )
+        return rows
+
+    @staticmethod
+    def _skill_description(description: str | None, files: dict[str, bytes]) -> str:
+        """An explicit description wins; else it's extracted from SKILL.md."""
+        explicit = (description or "").strip()
+        if explicit:
+            return explicit
+        return parse_skill_description(files["SKILL.md"].decode("utf-8", errors="replace"))
+
+    async def create_skill(
+        self, project_id: str, name: str, description: str | None, files: dict[str, bytes]
+    ) -> tuple[Skill, list[SkillFile]]:
+        async with self.sm() as s:
+            dup = (
+                await s.execute(
+                    select(Skill).where(Skill.org_id == project_id, Skill.name == name)
+                )
+            ).scalar_one_or_none()
+            if dup is not None:
+                raise ValueError(f"skill {name!r} already exists in this project")
+            skill = Skill(
+                id=uuid.uuid4().hex,
+                org_id=project_id,
+                name=name,
+                description=self._skill_description(description, files),
+            )
+            s.add(skill)
+            await s.flush()  # skill_files FK needs the parent row first
+            rows = self._skill_file_rows(skill.id, files)
+            s.add_all(rows)
+            await s.commit()
+            return skill, rows
+
+    async def list_skills(self, project_id: str) -> list[tuple[Skill, list[SkillFile]]]:
+        """Listings carry metadata only — never load the ``content`` blobs."""
+        async with self.sm() as s:
+            skills = list(
+                (
+                    await s.execute(
+                        select(Skill).where(Skill.org_id == project_id).order_by(Skill.name)
+                    )
+                ).scalars()
+            )
+            out = []
+            for sk in skills:
+                q = (
+                    select(SkillFile)
+                    .options(
+                        load_only(
+                            SkillFile.path, SkillFile.size, SkillFile.hash, SkillFile.mime_type
+                        )
+                    )
+                    .where(SkillFile.skill_id == sk.id)
+                    .order_by(SkillFile.path)
+                )
+                out.append((sk, list((await s.execute(q)).scalars())))
+            return out
+
+    async def get_skill(self, skill_id: str) -> tuple[Skill, list[SkillFile]] | None:
+        async with self.sm() as s:
+            skill = await s.get(Skill, skill_id)
+            if skill is None:
+                return None
+            return skill, await self._skill_files(s, skill_id)
+
+    async def update_skill(
+        self, skill_id: str, description: str | None, files: dict[str, bytes] | None
+    ) -> tuple[Skill, list[SkillFile]] | None:
+        """Update a skill's description and/or fully replace its file set."""
+        async with self.sm() as s:
+            skill = await s.get(Skill, skill_id)
+            if skill is None:
+                return None
+            if files is not None:
+                await s.execute(delete(SkillFile).where(SkillFile.skill_id == skill_id))
+                s.add_all(self._skill_file_rows(skill_id, files))
+                skill.description = self._skill_description(description, files)
+            elif (description or "").strip():
+                skill.description = (description or "").strip()
+            skill.updated_at = utcnow()  # files live in another table; stamp explicitly
+            await s.commit()
+            return skill, await self._skill_files(s, skill_id)
+
+    async def delete_skill(self, skill_id: str) -> bool:
+        async with self.sm() as s:
+            skill = await s.get(Skill, skill_id)
+            if skill is None:
+                return False
+            await s.execute(delete(SkillFile).where(SkillFile.skill_id == skill_id))
+            await s.delete(skill)
+            await s.commit()
+            return True
+
+    @staticmethod
+    async def _skill_files(s: AsyncSession, skill_id: str) -> list[SkillFile]:
+        q = select(SkillFile).where(SkillFile.skill_id == skill_id).order_by(SkillFile.path)
+        return list((await s.execute(q)).scalars())
 
     # -- sources -----------------------------------------------------------
     async def create_source(

@@ -160,6 +160,36 @@ export interface FsWriteResult {
   snapshot_id: string;
 }
 
+// Skills — project-scoped instruction packs (SKILL.md + helper files) served to
+// agents over MCP. The web UI is text-only, so it always sends encoding "utf-8";
+// binary files fetched from the API come back base64-encoded instead.
+export type SkillEncoding = "utf-8" | "base64";
+
+export interface SkillFileIn {
+  path: string;
+  content: string;
+  encoding: SkillEncoding;
+}
+
+export interface SkillFile {
+  path: string;
+  size: number;
+  hash: string;
+  mime_type: string;
+  content?: string; // only on GET /skills/{id}
+  encoding?: SkillEncoding;
+}
+
+export interface Skill {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  files: SkillFile[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Repo {
   full_name: string;
 }
@@ -264,6 +294,16 @@ export const api = {
       ...json({ path, content }),
       method: "PUT",
     }),
+
+  // Skills CRUD. An empty description lets the server fall back to the
+  // SKILL.md frontmatter (or its first non-heading line).
+  createSkill: (project_id: string, name: string, description: string, files: SkillFileIn[]) =>
+    req<Skill>("/skills", json({ project_id, name, description, files })),
+  listSkills: (projectId: string) => req<Skill[]>(`/skills?project_id=${projectId}`),
+  getSkill: (id: string) => req<Skill>(`/skills/${id}`),
+  updateSkill: (id: string, description: string, files: SkillFileIn[]) =>
+    req<Skill>(`/skills/${id}`, { ...json({ description, files }), method: "PUT" }),
+  deleteSkill: (id: string) => req<unknown>(`/skills/${id}`, { method: "DELETE" }),
 
   createSource: (
     project_id: string,

@@ -39,6 +39,15 @@ class FakeHarness:
                 f"\n### {p.relative_to(wd)}\n{p.read_text()[:4000]}\n" for p in files
             )
 
+        # Same proof for the org's skills mounted at `.claude/skills/` — the mount
+        # is removed before snapshotting, so the marker is the only surviving trace.
+        skills = wd / ".claude" / "skills"
+        if skills.exists():
+            files = sorted(p for p in skills.rglob("*") if p.is_file())
+            seen += "\n\n## .claude/skills files seen\n" + "".join(
+                f"\n### {p.relative_to(wd)}\n{p.read_text()[:4000]}\n" for p in files
+            )
+
         marker = wd / "_meta" / "last_build.md"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(f"# Last build\n\n{req.instruction[:4000]}\n{seen}")

@@ -1,9 +1,9 @@
 """context_research — an internal read agent over the latest snapshot.
 
-Materializes the org's latest (immutable) snapshot to a temp dir and runs a
-read-only harness over it, returning a synthesized, cited answer. Reading a
-snapshot (not the live FS) gives a consistent, never-torn view while the builder
-keeps writing.
+Materializes the org's latest (immutable) snapshot to a temp dir — plus the
+org's shared skills under .claude/skills/ — and runs a read-only harness over
+it, returning a synthesized, cited answer. Reading a snapshot (not the live FS)
+gives a consistent, never-torn view while the builder keeps writing.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from harnext_builder.agentfs.store import OrgFsStore
 from harnext_builder.harness.base import ConversationTranscript, HarnessRequest
 from harnext_builder.harness.registry import get_harness
 from harnext_builder.settings import BuilderSettings
+from harnext_shared import materialize_skills
 
 _READ_TOOLS = ["Read", "Glob", "Grep", "LS"]
 _NO_TOOLS = ["Write", "Edit", "MultiEdit", "Bash", "WebFetch", "WebSearch", "Task"]
@@ -61,6 +62,9 @@ async def research(
             dst = Path(tmp) / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(content)
+
+        # The org's shared skills, where the agent expects them.
+        await materialize_skills(store.sm, org_id, tmp)
 
         req = HarnessRequest(
             harness=settings.harness,

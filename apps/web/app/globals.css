@@ -759,6 +759,19 @@ code.ic { background: var(--bg-2); border: 1px solid var(--line); border-radius:
   .fs-text { min-height: 360px; }
 }
 
+/* ===== Skills (project-scoped SKILL.md packs) ===== */
+.src-ic.skill { background: var(--p-soft); color: var(--p-text); border-color: var(--p-line); }
+.skill-desc { flex: 1; font-size: 12px; color: var(--tx-1); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.modal.wide { width: min(680px, 100%); }
+.modal-body.scroll { max-height: min(72vh, 680px); overflow-y: auto; }
+.skill-text { display: block; width: 100%; resize: vertical; background: var(--bg-0); border: 1px solid var(--line-2); border-radius: 10px; outline: none; color: var(--tx-0); padding: 11px 13px; font-family: var(--font-mono), "JetBrains Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.65; tab-size: 2; min-height: 150px; transition: .13s; }
+.skill-text:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--p-soft); }
+.skill-text::placeholder { color: var(--tx-3); }
+.skill-text.sm { min-height: 88px; }
+.skill-file { margin-top: 10px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 11px; }
+.skill-file-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.skill-file-head .field { flex: 1; background: var(--bg-0); }
+
 .view { animation: fade .2s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
 @media (max-width: 880px) {
