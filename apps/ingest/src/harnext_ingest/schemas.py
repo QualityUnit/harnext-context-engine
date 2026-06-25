@@ -19,6 +19,16 @@ class LoginIn(BaseModel):
     password: str
 
 
+class BetaSignupIn(BaseModel):
+    email: str
+    name: str | None = None
+
+
+class BetaSignupOut(BaseModel):
+    ok: bool
+    status: str  # Mailchimp member status, e.g. "subscribed" / "pending"
+
+
 class UserOut(BaseModel):
     id: str
     email: str | None

@@ -30,7 +30,7 @@ from harnext_shared import (
     make_sessionmaker,
 )
 
-from harnext_ingest import oauth
+from harnext_ingest import mailchimp, oauth
 from harnext_ingest.connectors import SUPPORTED_KINDS, event_connector, liveagent, stripe
 from harnext_ingest.kafka import Producer
 from harnext_ingest.schemas import (
@@ -43,6 +43,8 @@ from harnext_ingest.schemas import (
     AgentSessionOut,
     AnalyticsOut,
     AuthOut,
+    BetaSignupIn,
+    BetaSignupOut,
     BuildOut,
     ChannelOut,
     DepartmentOut,
@@ -327,6 +329,31 @@ async def login(body: LoginIn, svc: SvcDep, cfg: CfgDep) -> AuthOut:
     if user is None:
         raise HTTPException(401, "invalid email or password")
     return AuthOut(token=_token(cfg, user), user=_user_out(user))
+
+
+@app.post("/beta/signup", response_model=BetaSignupOut)
+async def beta_signup(body: BetaSignupIn, cfg: CfgDep) -> BetaSignupOut:
+    """Register interest in the closed beta — tag the contact in Mailchimp.
+
+    Public (no auth): the "register" page calls this to collect a name + email
+    while Harnext isn't generally available. The contact is upserted into the
+    configured audience and tagged; we store nothing locally."""
+    email = body.email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(400, "a valid email is required")
+    if not cfg.mailchimp_api_key:
+        raise HTTPException(503, "beta registration is not configured on this instance")
+    try:
+        status = await mailchimp.upsert_member(
+            api_key=cfg.mailchimp_api_key,
+            audience_id=cfg.mailchimp_audience_id,
+            email=email,
+            name=body.name,
+            tag=cfg.mailchimp_beta_tag,
+        )
+    except mailchimp.MailchimpError as e:
+        raise HTTPException(502, f"could not register interest: {e}") from e
+    return BetaSignupOut(ok=True, status=status)
 
 
 @app.get("/auth/me", response_model=UserOut)

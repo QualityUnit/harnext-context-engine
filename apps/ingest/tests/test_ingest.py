@@ -235,6 +235,55 @@ async def test_mcp_requests_endpoint(tmp_path):
         await engine.dispose()
 
 
+async def test_beta_signup_tags_mailchimp(monkeypatch):
+    import httpx
+    from harnext_ingest import mailchimp
+    from harnext_ingest.main import app
+    from harnext_ingest.main import settings as settings_dep
+
+    calls: list[dict] = []
+
+    async def fake_upsert(**kw):
+        calls.append(kw)
+        return "subscribed"
+
+    monkeypatch.setattr(mailchimp, "upsert_member", fake_upsert)
+    cfg = IngestSettings(
+        mailchimp_api_key="key-us21", mailchimp_audience_id="485db66a95",
+        mailchimp_beta_tag="harnext-closed-beta",
+    )
+    app.dependency_overrides[settings_dep] = lambda: cfg
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.post("/beta/signup", json={"email": "Ada@Acme.io", "name": "Ada Lovelace"})
+            assert r.status_code == 200
+            assert r.json() == {"ok": True, "status": "subscribed"}
+            assert calls[0]["email"] == "ada@acme.io"  # normalised
+            assert calls[0]["audience_id"] == "485db66a95"
+            assert calls[0]["tag"] == "harnext-closed-beta"
+
+            bad = await c.post("/beta/signup", json={"email": "not-an-email"})
+            assert bad.status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_beta_signup_503_without_key(monkeypatch):
+    import httpx
+    from harnext_ingest.main import app
+    from harnext_ingest.main import settings as settings_dep
+
+    app.dependency_overrides[settings_dep] = lambda: IngestSettings(mailchimp_api_key=None)
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.post("/beta/signup", json={"email": "a@b.com", "name": "A"})
+            assert r.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
 async def test_oauth_token_reuse(tmp_path):
     svc, engine, _ = await _svc(tmp_path)
     try:

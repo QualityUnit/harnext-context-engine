@@ -250,7 +250,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
                 </>
               ) : (
                 <span style={{ color: "var(--tx-3)" }}>
-                  Invite-only — ask an admin to create your account.
+                  Closed beta —{" "}
+                  <button onClick={() => router.push("/register")}>request an invite</button>.
                 </span>
               )}
             </div>

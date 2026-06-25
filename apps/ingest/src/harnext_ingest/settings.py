@@ -42,6 +42,15 @@ class IngestSettings(BaseSettings):
     # are created with the `harnext_ingest.admin` CLI on the server.
     registration_open: bool = False
 
+    # -- Closed-beta / webinar registration (Mailchimp) --------------------
+    # While Harnext isn't generally available, the "register" page collects
+    # interested users' name + email and tags them in an existing Mailchimp
+    # audience (no new audience, no local storage). Set the API key to enable
+    # POST /beta/signup; leave empty and the endpoint returns 503.
+    mailchimp_api_key: str | None = None
+    mailchimp_audience_id: str = "485db66a95"
+    mailchimp_beta_tag: str = "harnext-closed-beta"
+
     # Slack Events API signing secret — verifies inbound webhook POSTs. Set it to
     # enable POST /webhooks/slack (real-time messages); leave empty to disable.
     slack_signing_secret: str | None = None

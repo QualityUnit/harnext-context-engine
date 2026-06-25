@@ -219,6 +219,8 @@ export const api = {
     req<AuthOut>("/auth/register", json({ email, password, name })),
   login: (email: string, password: string) => req<AuthOut>("/auth/login", json({ email, password })),
   me: () => req<User>("/auth/me"),
+  betaSignup: (email: string, name: string) =>
+    req<{ ok: boolean; status: string }>("/beta/signup", json({ email, name })),
   googleStartUrl: () => `${API_BASE}/auth/google/start`,
 
   createProject: (name: string) => req<Project>("/projects", json({ name })),
