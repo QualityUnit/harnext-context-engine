@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { IAlert, IArrow, ICheck, IMail, IServer, IUser } from "@/components/Icons";
@@ -13,6 +13,12 @@ export default function RegisterPage() {
   const [errs, setErrs] = useState<{ name?: string | null; email?: string | null }>({});
   const [state, setState] = useState<"idle" | "loading" | "done">("idle");
   const [formError, setFormError] = useState<string | null>(null);
+
+  // A GitHub sign-in during the closed beta lands here as ?joined=1 — the email
+  // was already captured server-side, so go straight to the "on the list" view.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("joined")) setState("done");
+  }, []);
 
   const set = (k: "name" | "email") => (v: string) => {
     setF((p) => ({ ...p, [k]: v }));

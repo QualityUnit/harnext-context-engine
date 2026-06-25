@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -78,6 +79,8 @@ from harnext_ingest.schemas import (
 from harnext_ingest.security import create_token, decode_token
 from harnext_ingest.service import SourceService
 from harnext_ingest.settings import IngestSettings
+
+log = logging.getLogger("ingest.api")
 
 
 @asynccontextmanager
@@ -417,8 +420,32 @@ async def github_login_callback(
         info = await oauth.github_login_exchange(
             cfg.github_oauth_client_id, cfg.github_oauth_client_secret, code, redirect
         )
-        if not info.get("email"):
-            return RedirectResponse(f"{cfg.web_origin}/login?error=github_no_email")
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"{cfg.web_origin}/login?error={type(e).__name__}")
+    if not info.get("email"):
+        return RedirectResponse(f"{cfg.web_origin}/login?error=github_no_email")
+
+    # Closed-beta funnel: while the dashboard isn't public, a GitHub sign-in
+    # registers interest rather than opening the app — tag the email in Mailchimp
+    # and show the newsletter page. No account or session is created. A capture
+    # failure must not block the user, so we still land them on the thank-you page.
+    if cfg.github_beta_capture:
+        if cfg.mailchimp_api_key:
+            try:
+                await mailchimp.upsert_member(
+                    api_key=cfg.mailchimp_api_key,
+                    audience_id=cfg.mailchimp_audience_id,
+                    email=info["email"],
+                    name=info.get("name"),
+                    tag=cfg.mailchimp_beta_tag,
+                )
+            except mailchimp.MailchimpError as e:
+                log.warning("github beta capture: mailchimp upsert failed (%s)", e)
+        else:
+            log.warning("github beta capture on but MAILCHIMP_API_KEY unset — lead not saved")
+        return RedirectResponse(f"{cfg.web_origin}/register?joined=1")
+
+    try:
         user = await svc.upsert_github_user(info["email"], info["name"], info["avatar"])
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(f"{cfg.web_origin}/login?error={type(e).__name__}")

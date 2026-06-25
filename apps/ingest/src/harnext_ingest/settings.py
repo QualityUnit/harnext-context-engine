@@ -51,6 +51,13 @@ class IngestSettings(BaseSettings):
     mailchimp_audience_id: str = "485db66a95"
     mailchimp_beta_tag: str = "harnext-closed-beta"
 
+    # During the closed beta the dashboard isn't public: a "Continue with GitHub"
+    # sign-in registers interest instead of opening the app — we tag the GitHub
+    # email in Mailchimp and show the newsletter page. No account/session is made.
+    # Flip to false at launch to restore normal GitHub login. (Email/password
+    # login is unaffected, so it remains the admin door into the dashboard.)
+    github_beta_capture: bool = True
+
     # Slack Events API signing secret — verifies inbound webhook POSTs. Set it to
     # enable POST /webhooks/slack (real-time messages); leave empty to disable.
     slack_signing_secret: str | None = None

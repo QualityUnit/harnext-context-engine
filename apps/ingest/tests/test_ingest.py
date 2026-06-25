@@ -284,6 +284,52 @@ async def test_beta_signup_503_without_key(monkeypatch):
         app.dependency_overrides.clear()
 
 
+async def test_github_login_captures_beta_lead(tmp_path, monkeypatch):
+    import httpx
+    from harnext_ingest import mailchimp, oauth
+    from harnext_ingest.main import app
+    from harnext_ingest.main import service as service_dep
+    from harnext_ingest.main import settings as settings_dep
+
+    svc, engine, _ = await _svc(tmp_path)
+    captured: list[dict] = []
+
+    async def fake_exchange(*a, **k):
+        return {"email": "lead@acme.io", "name": "Lead Person", "avatar": None}
+
+    async def fake_upsert(**kw):
+        captured.append(kw)
+        return "subscribed"
+
+    monkeypatch.setattr(oauth, "github_login_exchange", fake_exchange)
+    monkeypatch.setattr(mailchimp, "upsert_member", fake_upsert)
+
+    cfg = IngestSettings(
+        github_oauth_client_id="cid", github_oauth_client_secret="sec",
+        github_beta_capture=True, mailchimp_api_key="key-us3",
+        mailchimp_audience_id="485db66a95", mailchimp_beta_tag="harnext-closed-beta",
+        web_origin="https://app.harnext.dev",
+    )
+    app.dependency_overrides[service_dep] = lambda: svc
+    app.dependency_overrides[settings_dep] = lambda: cfg
+    try:
+        state = oauth.new_state("", "github_login")
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.get(f"/auth/github/callback?code=abc&state={state}")
+            # Funnels to the newsletter page — no session token in the redirect.
+            assert r.status_code in (302, 307)
+            assert r.headers["location"] == "https://app.harnext.dev/register?joined=1"
+        # Lead tagged in the right audience; NO dashboard account was created.
+        assert captured[0]["email"] == "lead@acme.io"
+        assert captured[0]["audience_id"] == "485db66a95"
+        assert captured[0]["tag"] == "harnext-closed-beta"
+        assert await svc.authenticate("lead@acme.io", "") is None
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
 async def test_oauth_token_reuse(tmp_path):
     svc, engine, _ = await _svc(tmp_path)
     try:
