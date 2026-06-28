@@ -41,7 +41,15 @@ def slack_message_event(org_id: str, channel: str, channel_name: str, m: dict) -
         message_id=ts,
         time=datetime.fromtimestamp(float(ts), tz=UTC),
         text=m.get("text"),
-        extra={"user": m.get("user"), "ts": ts, "reply_count": m.get("reply_count", 0)},
+        extra={
+            "user": m.get("user"),
+            "ts": ts,
+            # thread_ts (the root message's ts) is the Slack ordering domain — see
+            # connectors.ordering._slack_thread. Present on thread replies/roots,
+            # absent on standalone messages (then ordering falls back to channel).
+            "thread_ts": m.get("thread_ts"),
+            "reply_count": m.get("reply_count", 0),
+        },
     )
 
 
