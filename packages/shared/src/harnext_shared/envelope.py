@@ -35,7 +35,26 @@ class CloudEvent(BaseModel):
         default=None,
         description="Object-store URL when payload is a blob (file uploads).",
     )
+    ordering_key: str | None = Field(
+        default=None,
+        description=(
+            "Optional Kafka ordering domain, decoupled from `subject`. `subject` is "
+            "*entity identity* (drives how the builder organizes the FS); "
+            "`ordering_key` is the *ordering domain* (the coarsest entity within "
+            "which event order must be preserved, and no coarser). They diverge for "
+            "sources like Stripe (`subject=stripe:invoice` but `ordering_key=customer:…`). "
+            "Each connector declares its key via the reviewed derivation table "
+            "(harnext_ingest.connectors.ordering, D1 in #14). Unset → partition by "
+            "`subject`, so existing topics behave identically."
+        ),
+    )
 
     def partition_key(self) -> bytes:
-        """Tenant-scoped, entity-keyed partition key for Kafka."""
-        return f"{self.mgtenant}:{self.subject}".encode()
+        """Tenant-scoped Kafka partition key over the event's *ordering domain*.
+
+        Uses ``ordering_key`` when set, else falls back to ``subject`` — so an
+        unset ``ordering_key`` reproduces the original ``{mgtenant}:{subject}``
+        routing exactly. Same key → same partition → serialized; different keys →
+        different partitions → parallel.
+        """
+        return f"{self.mgtenant}:{self.ordering_key or self.subject}".encode()

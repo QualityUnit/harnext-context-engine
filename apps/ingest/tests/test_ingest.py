@@ -679,8 +679,17 @@ def test_slack_message_event_shape():
         "text": "hi",
         "user": "U1",
         "ts": "1700000000.0001",
+        # thread_ts rides in data so connectors.ordering can key on the Slack
+        # thread; absent on this standalone message → None (orders by channel).
+        "thread_ts": None,
         "reply_count": 2,
     }
+
+    # A thread reply carries thread_ts (the root's ts) → thread-level ordering.
+    reply = {"channel": "C1", "user": "U1", "text": "re", "ts": "1700000000.0002",
+             "thread_ts": "1700000000.0001"}
+    re = slack_message_event("org1", "C1", "eng", reply)
+    assert re.data["thread_ts"] == "1700000000.0001"
 
 
 def test_event_connector_lookup():
