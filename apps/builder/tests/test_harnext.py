@@ -5,6 +5,10 @@ so nothing hits the CLI or a provider."""
 from __future__ import annotations
 
 import harnext_builder.harness.harnext as harnext_mod
+from harnext_builder.harness.base import HarnessRequest
+from harnext_builder.harness.harnext import HarnextHarness
+from harnext_builder.harness.registry import get_harness
+from harnext_builder.settings import BuilderSettings
 from harnext_sdk import (
     AssistantMessage,
     ResultMessage,
@@ -15,10 +19,6 @@ from harnext_sdk import (
     ToolUseBlock,
     UserMessage,
 )
-from harnext_builder.harness.base import HarnessRequest
-from harnext_builder.harness.harnext import HarnextHarness
-from harnext_builder.harness.registry import get_harness
-from harnext_builder.settings import BuilderSettings
 
 
 def _settings(**over) -> BuilderSettings:

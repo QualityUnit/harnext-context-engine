@@ -100,6 +100,16 @@ The incremental cursor only advances past pages a poll *fully* crawled, so a
 bounded poll resumes the rest next time instead of skipping the tail. Tune the
 budget with the `CRAWL_*` vars in `.env.example`.
 
+### Skills
+
+Each project carries **skills** — named directories of instructions (a `SKILL.md`
+entry file plus supporting files) shared by everyone working through that
+project. Manage them from the dashboard or the `/skills` API; external agents
+pull them over MCP as `skill://` resources (e.g. with
+`fastmcp.utilities.skills.sync_skills`), and the internal builder/research
+agents get them materialized automatically as `.claude/skills/` in their
+working dir. See [docs/skills.md](docs/skills.md).
+
 ### Auth + Google sign-in setup
 
 Set `JWT_SECRET` in `.env` to a long random string. For **Sign in with Google**,
@@ -151,7 +161,7 @@ incorporates both into `data/agentfs/.agentfs/acme.db`.
 | `apps/ingest` | source registry API + GitHub/Slack/Discord/LiveAgent/YouTube/Sitemap connectors (+ Celery crawler) → raw topic |
 | `apps/classifier` | fast/batch routing (rules + anomaly) + batch windowing |
 | `apps/builder` | the builder: AgentFS store, harness, build runner, Kafka consumers |
-| `apps/mcp` | the external MCP surface (research / get_urls / update) |
+| `apps/mcp` | the external MCP surface (research / get_urls / update + `skill://` resources) |
 | `apps/web` | minimal Next.js source-connection UI |
 
 ## Development

@@ -20,6 +20,8 @@ from harnext_shared.db import (
     IngestedEvent,
     McpRequest,
     Project,
+    Skill,
+    SkillFile,
     Source,
     SourcePollState,
     User,
@@ -32,6 +34,11 @@ from harnext_shared.session import (
     init_db,
     make_engine,
     make_sessionmaker,
+)
+from harnext_shared.skills_fs import (
+    materialize_skills,
+    parse_skill_description,
+    skill_file_meta,
 )
 from harnext_shared.topics import (
     ALL_TOPICS,
@@ -66,6 +73,8 @@ __all__ = [
     "McpRequest",
     "Project",
     "RAW_EVENTS_TOPIC",
+    "Skill",
+    "SkillFile",
     "Source",
     "SourcePollState",
     "User",
@@ -79,6 +88,9 @@ __all__ = [
     "init_db",
     "make_engine",
     "make_sessionmaker",
+    "materialize_skills",
+    "parse_skill_description",
+    "skill_file_meta",
     "new_device_code",
     "new_refresh_token",
     "new_user_code",

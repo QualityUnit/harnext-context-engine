@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -281,6 +281,43 @@ class AgentEventOut(BaseModel):
 class AgentSessionDetailOut(BaseModel):
     session: AgentSessionOut
     events: list[AgentEventOut]
+
+
+class SkillFileIn(BaseModel):
+    path: str  # relative POSIX, e.g. "SKILL.md" or "scripts/run.py"
+    content: str
+    encoding: Literal["utf-8", "base64"] = "utf-8"
+
+
+class SkillFileOut(BaseModel):
+    path: str
+    size: int
+    hash: str  # "sha256:<hex>"
+    mime_type: str
+    content: str | None = None  # only on GET /skills/{id}
+    encoding: Literal["utf-8", "base64"] | None = None
+
+
+class SkillCreate(BaseModel):
+    project_id: str
+    name: str  # slug: ^[a-z0-9][a-z0-9_-]{0,63}$
+    description: str | None = None  # omitted/empty → extracted from SKILL.md
+    files: list[SkillFileIn]  # must include "SKILL.md"
+
+
+class SkillUpdate(BaseModel):
+    description: str | None = None
+    files: list[SkillFileIn] | None = None  # full file-set replacement when given
+
+
+class SkillOut(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    description: str
+    files: list[SkillFileOut]
+    created_at: datetime
+    updated_at: datetime
 
 
 class RepoOut(BaseModel):
