@@ -17,7 +17,7 @@ dependencies = [
     "bcrypt>=4.2",
     "pyjwt>=2.9",
     "celery[redis]>=5.4",
-    "yt-dlp>=2026.2.21,<2027",
+    "yt-dlp>=2026.7.4,<2027",
 ]
 
 [project.scripts]
